@@ -1,6 +1,6 @@
-const ds = @import("window/displayServer.zig");
+const wds = @import("window/waylandDisplayServer.zig");
 
 pub fn main() !void {
-    const displayServer = ds.getDisplayServer();
-    try displayServer.connectFn(displayServer.ptr);
+    const displayServer = try wds.WaylandDisplayServer.init();
+    displayServer.close();
 }
