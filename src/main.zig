@@ -8,7 +8,7 @@ const State = struct {
     displayServer: *wds.WaylandDisplayServer,
 
     pub fn clean(self: Self) void {
-        std.debug.print("Gracefully exiting...\n", .{});
+        std.debug.print("(global) Gracefully exiting...\n", .{});
         self.displayServer.close();
     }
 };
@@ -32,7 +32,7 @@ pub fn main() !void {
     const handler: std.posix.Sigaction = .{ .handler = .{ .handler = cleanHandle }, .mask = std.posix.empty_sigset, .flags = 0 };
     try std.posix.sigaction(std.posix.SIG.INT, &handler, null);
 
-    std.debug.print("Starting event loop\n", .{});
+    std.debug.print("(global) Starting event loop\n", .{});
     while (state.displayServer.dispatch()) {}
 
     state.clean();
