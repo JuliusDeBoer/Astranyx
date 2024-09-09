@@ -20,7 +20,7 @@ pub fn cleanHandle(_: i32) callconv(.C) void {
 }
 
 pub fn main() !void {
-    const displayServer = try wds.WaylandDisplayServer.init();
+    const displayServer = try wds.WaylandDisplayServer.init(.{ .width = 640, .height = 480, .name = "Window maybe?" });
     state.displayServer = @constCast(&displayServer);
 
     // Handle SIGINT (ctrl+c)
