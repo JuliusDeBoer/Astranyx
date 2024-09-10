@@ -1,7 +1,7 @@
 const std = @import("std");
 const c = @cImport({
     @cInclude("wayland-client.h");
-    @cInclude("xdg-shell.h");
+    @cInclude("xdg-shell-protocol.h");
 });
 
 fn randName(random: std.rand.Random) [7]u8 {
@@ -19,8 +19,6 @@ fn createShmFile() !c_int {
     const random = prng.random();
 
     while (retries > 0) {
-        // var name = "/wl_shm-0000000";
-        // std.mem.copyForwards(u8, @constCast(name[8..], &randName(random));
         const name = try std.fmt.allocPrint(std.heap.page_allocator, "/wl_shm-{s}", .{randName(random)});
         retries -= 1;
         const flags = std.posix.O{
@@ -73,7 +71,9 @@ pub const WaylandDisplayServer = struct {
     compositor: *c.struct_wl_compositor = undefined,
     registry: *c.wl_registry = undefined,
     shm: *c.wl_shm = undefined,
-    xdg_shell: *c.struct_zxdg_shell_v6 = undefined,
+    xdg_wm_base: *c.xdg_wm_base = undefined,
+    xdg_surface: *c.xdg_surface = undefined,
+    xdg_toplevel: *c.xdg_toplevel = undefined,
 
     pub fn registry_handle_global(data: ?*anyopaque, registry: ?*c.struct_wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.C) void {
         _ = registry;
@@ -91,6 +91,11 @@ pub const WaylandDisplayServer = struct {
         _ = data;
         _ = name;
         std.debug.print("(wayland) TODO: Handle removing from registry", .{});
+    }
+
+    // I dont know if this only handles ping or other things too.
+    pub fn handle_ping(_: ?*anyopaque, base: ?*c.struct_xdg_wm_base, id: u32) callconv(.C) void {
+        c.xdg_wm_base_pong(base, id);
     }
 
     pub fn init(args: WaylandDisplayServerArgs) anyerror!Self {
@@ -115,21 +120,33 @@ pub const WaylandDisplayServer = struct {
             return error.WaylandError;
         }
 
+        // This will cause a segvault when one or more do not get registered.
+        // Time to not think about that.
         for (&registryItems) |item| {
-            // TODO: Use a switch statement
             if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.wl_compositor_interface.name))))) {
                 const compositor_ptr = c.wl_registry_bind(out.registry, item.name, &c.wl_compositor_interface, item.version);
                 out.compositor = @ptrCast(@alignCast(compositor_ptr));
+                std.debug.print("(wayland) Registered compositor\n", .{});
             } else if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.wl_shm_interface.name))))) {
                 const shm_ptr = c.wl_registry_bind(out.registry, item.name, &c.wl_shm_interface, item.version);
                 out.shm = @ptrCast(@alignCast(shm_ptr));
-            } else if (std.mem.eql(u8, item.interface, "zxdg_shell_v6")) {
-                const xdg_shell_ptr = c.wl_registry_bind(out.registry, item.name, &c.zxdg_shell_v6_interface, item.version);
-                out.xdg_shell = @ptrCast(@alignCast(xdg_shell_ptr));
+                std.debug.print("(wayland) Registered SHM\n", .{});
+            } else if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.xdg_wm_base_interface.name))))) {
+                const xdg_shell_ptr = c.wl_registry_bind(out.registry, item.name, &c.xdg_wm_base_interface, item.version);
+                out.xdg_wm_base = @ptrCast(@alignCast(xdg_shell_ptr));
+                std.debug.print("(wayland) Registered XDG shell\n", .{});
             }
         }
 
         const surface = c.wl_compositor_create_surface(out.compositor);
+        _ = c.xdg_wm_base_add_listener(out.xdg_wm_base, &.{ .ping = handle_ping }, null);
+
+        out.xdg_surface = c.xdg_wm_base_get_xdg_surface(out.xdg_wm_base, surface).?;
+        out.xdg_toplevel = c.xdg_surface_get_toplevel(out.xdg_surface).?;
+
+        // Haha. CNAME
+        const c_name = std.mem.span(@as([*c]const u8, @ptrCast(args.name)));
+        c.xdg_toplevel_set_title(out.xdg_toplevel, c_name);
 
         const stride = args.width * 4;
         const shm_pool_size: usize = @as(usize, @intCast(args.height * stride * 2));
@@ -154,6 +171,10 @@ pub const WaylandDisplayServer = struct {
     }
 
     pub fn close(self: Self) void {
+        c.xdg_surface_destroy(self.xdg_surface);
+        c.xdg_toplevel_destroy(self.xdg_toplevel);
+        c.xdg_wm_base_destroy(self.xdg_wm_base);
+
         c.wl_display_disconnect(self.display);
         std.debug.print("(wayland) Closed connection\n", .{});
     }

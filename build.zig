@@ -13,9 +13,9 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkLibC();
-    // exe.linkSystemLibrary("wayland-client");
-    // exe.addCSourceFile("xdg-shell.c", &[_][]const u8{"-std=c99"});
-    exe.addCSourceFile(.{ .file = b.path("c/xdg-shell.c"), .flags = &.{} });
+    // TODO: Just grab the entire directory instead of manualy setting
+    // specifying the file.
+    exe.addCSourceFile(.{ .file = b.path("c/xdg-shell-protocol.c"), .flags = &.{} });
     exe.addIncludePath(.{ .src_path = .{ .sub_path = "c", .owner = b } });
 
     exe.linkSystemLibrary2("wayland-client", .{ .preferred_link_mode = .static });
