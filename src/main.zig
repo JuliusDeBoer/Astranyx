@@ -42,3 +42,9 @@ pub fn main() !void {
 
     state.clean();
 }
+
+comptime {
+    // This is dumb. Howver the testing gods have forced my hands
+    // _ = @import("window/wayland.zig");
+    // _ = @import("logging.zig");
+}
