@@ -3,6 +3,7 @@ const c = @cImport({
     @cInclude("wayland-client.h");
     @cInclude("xdg-shell-protocol.h");
 });
+const l = @import("../logging.zig");
 
 fn randName(random: std.rand.Random) [7]u8 {
     var out: [7]u8 = undefined;
@@ -66,6 +67,7 @@ const WaylandDisplayServerArgs = struct { name: []const u8, width: i32, height: 
 /// Easily create a wayland window
 pub const WaylandDisplayServer = struct {
     const Self = @This();
+    const logger = l.Logger.init(Self);
 
     display: *c.struct_wl_display = undefined,
     compositor: *c.struct_wl_compositor = undefined,
@@ -78,7 +80,7 @@ pub const WaylandDisplayServer = struct {
     pub fn registry_handle_global(data: ?*anyopaque, registry: ?*c.struct_wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.C) void {
         _ = registry;
         _ = data;
-        std.debug.print("(wayland) Found registry: interface: {s} version: {} name: {}\n", .{ interface, version, name });
+        logger.info("Found registry: interface: {s} version: {} name: {}", .{ interface, version, name });
 
         const interface_string = std.mem.span(@as([*:0]const u8, @ptrCast(interface)));
         const item = RegistryItem{ .name = name, .interface = interface_string, .version = version };
@@ -90,7 +92,7 @@ pub const WaylandDisplayServer = struct {
         _ = registry;
         _ = data;
         _ = name;
-        std.debug.print("(wayland) TODO: Handle removing from registry", .{});
+        logger.info("TODO: Handle removing from registry", .{});
     }
 
     // I dont know if this only handles ping or other things too.
@@ -104,7 +106,7 @@ pub const WaylandDisplayServer = struct {
 
         {
             if (display == null) {
-                std.debug.print("(wayland) Could not get display\n", .{});
+                logger.err("Could not get display", .{});
                 return error.WaylandError;
             }
             out.display = display.?;
@@ -116,7 +118,7 @@ pub const WaylandDisplayServer = struct {
         _ = c.wl_registry_add_listener(out.registry, &registry_listener, null);
 
         if (c.wl_display_roundtrip(out.display) == -1) {
-            std.debug.print("(wayland) wl_display_roundtrip failed. Cowardly exiting...\n", .{});
+            logger.err("wl_display_roundtrip failed. Cowardly exiting...", .{});
             return error.WaylandError;
         }
 
@@ -126,15 +128,15 @@ pub const WaylandDisplayServer = struct {
             if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.wl_compositor_interface.name))))) {
                 const compositor_ptr = c.wl_registry_bind(out.registry, item.name, &c.wl_compositor_interface, item.version);
                 out.compositor = @ptrCast(@alignCast(compositor_ptr));
-                std.debug.print("(wayland) Registered compositor\n", .{});
+                logger.info("Registered compositor", .{});
             } else if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.wl_shm_interface.name))))) {
                 const shm_ptr = c.wl_registry_bind(out.registry, item.name, &c.wl_shm_interface, item.version);
                 out.shm = @ptrCast(@alignCast(shm_ptr));
-                std.debug.print("(wayland) Registered SHM\n", .{});
+                logger.info("Registered SHM", .{});
             } else if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.xdg_wm_base_interface.name))))) {
                 const xdg_shell_ptr = c.wl_registry_bind(out.registry, item.name, &c.xdg_wm_base_interface, item.version);
                 out.xdg_wm_base = @ptrCast(@alignCast(xdg_shell_ptr));
-                std.debug.print("(wayland) Registered XDG shell\n", .{});
+                logger.info("Registered XDG shell", .{});
             }
         }
 
@@ -166,7 +168,7 @@ pub const WaylandDisplayServer = struct {
         c.wl_surface_damage(surface, 0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
         c.wl_surface_commit(surface);
 
-        std.debug.print("(wayland) Initialized successfully\n", .{});
+        logger.info("Initialized successfully", .{});
         return out;
     }
 
@@ -176,7 +178,7 @@ pub const WaylandDisplayServer = struct {
         c.xdg_wm_base_destroy(self.xdg_wm_base);
 
         c.wl_display_disconnect(self.display);
-        std.debug.print("(wayland) Closed connection\n", .{});
+        logger.info("Closed connection", .{});
     }
 
     /// Event loop thingy
@@ -184,3 +186,56 @@ pub const WaylandDisplayServer = struct {
         return c.wl_display_dispatch(self.display) != 0;
     }
 };
+
+// Tests
+const testing = std.testing;
+
+test "randName generates valid names" {
+    var prng = std.rand.DefaultPrng.init(0);
+    const random = prng.random();
+
+    const name = randName(random);
+    try testing.expectEqual(name.len, 7);
+    for (name) |char| {
+        try testing.expect(char >= 'a' and char <= 'z');
+    }
+}
+
+test "createShmFile returns a valid file descriptor" {
+    const fd = try createShmFile();
+    defer std.os.close(fd);
+    try testing.expect(fd >= 0);
+}
+
+test "allocateShmFile creates a file of the correct size" {
+    const size: i32 = 1024;
+    const fd = try allocateShmFile(size);
+    defer std.os.close(fd);
+
+    var stat: std.os.Stat = undefined;
+    try std.os.fstat(fd, &stat);
+    try testing.expectEqual(stat.size, size);
+}
+
+test "WaylandDisplayServer initialization and closing" {
+    const args = WaylandDisplayServerArgs{
+        .name = "Test Window",
+        .width = 800,
+        .height = 600,
+    };
+
+    var server = WaylandDisplayServer.init(args) catch |err| {
+        std.debug.print("Failed to initialize WaylandDisplayServer: {}\n", .{err});
+        return;
+    };
+    defer server.close();
+
+    // Verify that essential fields are initialized
+    try testing.expect(server.display != null);
+    try testing.expect(server.compositor != null);
+    try testing.expect(server.registry != null);
+    try testing.expect(server.shm != null);
+    try testing.expect(server.xdg_wm_base != null);
+    try testing.expect(server.xdg_surface != null);
+    try testing.expect(server.xdg_toplevel != null);
+}
