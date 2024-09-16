@@ -2,7 +2,7 @@ const std = @import("std");
 const wds = @import("window/wayland.zig");
 const l = @import("logging.zig");
 
-const logger = l.Logger.init(null);
+const logger = l.Logger.init(@This());
 
 // The state of the entire program. Maybe move this to another file. Maybe not.
 const State = struct {
@@ -23,7 +23,7 @@ pub fn cleanHandle(_: i32) callconv(.C) void {
 }
 
 pub fn main() !void {
-    logger.info("Hello, World!", .{});
+    logger.info("TODO: Show program version", .{});
 
     const displayServer = try wds.WaylandDisplayServer.init(.{ .width = 640, .height = 480, .name = "Window maybe?" });
     state.displayServer = @constCast(&displayServer);

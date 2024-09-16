@@ -17,6 +17,7 @@
       buildInputs = [
         pkgs.zig
         pkgs.zls
+        pkgs.gdb
         pkgs.wayland
       ];
     };
