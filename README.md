@@ -7,17 +7,18 @@ to finished. *EVER*.
 
 - [ ] Windowing system
   - [ ] Linux support
-    - [-] Wayland
-      - [X] Creating a wayland
-      - [ ] Window decorations
+    - [ ] Wayland
+      - [X] Creating a window
+      - [ ] Support `xdg-decoration`
     - [ ] Xorg
   - [ ] Windows support
 - [ ] Vulkan rendering
 - [ ] CMS
 - [ ] Finishing TODO
 
-Im gonna do window decorations once `zxdg_decoration_manager_v1` or something
-like it will actually be usable. Until then you can enjoy the minimalism.
+Once Gnome will actually support `xdg-decoration` I will look at supporting it
+again. Until then I'll just complain about how terrible it is for them to not
+support SSD. Idiots...
 
 ## Why not C?
 
