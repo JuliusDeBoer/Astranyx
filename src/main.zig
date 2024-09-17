@@ -18,7 +18,7 @@ const State = struct {
 var state: State = .{ .displayServer = undefined };
 
 pub fn cleanHandle(_: i32) callconv(.C) void {
-    std.debug.print("\n", .{});
+    _ = std.io.getStdOut().write("\n") catch {};
     state.clean();
 }
 
