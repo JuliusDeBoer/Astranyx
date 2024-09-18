@@ -1,5 +1,6 @@
 const std = @import("std");
 const wds = @import("window/wayland.zig");
+const vulkan = @import("rendering/VulkanRenderer.zig");
 const l = @import("logging.zig");
 
 const logger = l.Logger.init(@This());
@@ -25,8 +26,12 @@ pub fn cleanHandle(_: i32) callconv(.C) void {
 pub fn main() !void {
     logger.info("TODO: Show program version", .{});
 
+    logger.info("Initializing Wayland...", .{});
     const displayServer = try wds.WaylandDisplayServer.init(.{ .width = 640, .height = 480, .name = "Window maybe?" });
     state.displayServer = @constCast(&displayServer);
+
+    logger.info("Initializing Vulkan...", .{});
+    _ = vulkan.VulkanRenderer.init();
 
     // Handle SIGINT (ctrl+c)
     //
@@ -47,4 +52,5 @@ comptime {
     // This is dumb. Howver the testing gods have forced my hands
     // _ = @import("window/wayland.zig");
     // _ = @import("logging.zig");
+    // _ = @import("rendering/VulkanRenderer.zig");
 }

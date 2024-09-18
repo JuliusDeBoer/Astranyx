@@ -19,6 +19,8 @@
         pkgs.zls
         pkgs.gdb
         pkgs.wayland
+        pkgs.vulkan-tools
+        pkgs.vulkan-headers
       ];
     };
   };
