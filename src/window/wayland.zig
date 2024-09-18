@@ -77,7 +77,13 @@ pub const WaylandDisplayServer = struct {
     xdg_surface: *c.xdg_surface = undefined,
     xdg_toplevel: *c.xdg_toplevel = undefined,
 
-    pub fn registry_handle_global(data: ?*anyopaque, registry: ?*c.struct_wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.C) void {
+    pub fn registry_handle_global(
+        data: ?*anyopaque,
+        registry: ?*c.struct_wl_registry,
+        name: u32,
+        interface: [*c]const u8,
+        version: u32,
+    ) callconv(.C) void {
         _ = registry;
         _ = data;
         logger.info("Found registry: interface: {s} version: {} name: {}", .{ interface, version, name });
@@ -88,7 +94,11 @@ pub const WaylandDisplayServer = struct {
         registryItemsCount += 1;
     }
 
-    pub fn registry_handle_global_remove(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32) callconv(.C) void {
+    pub fn registry_handle_global_remove(
+        data: ?*anyopaque,
+        registry: ?*c.wl_registry,
+        name: u32,
+    ) callconv(.C) void {
         _ = registry;
         _ = data;
         _ = name;
@@ -114,7 +124,10 @@ pub const WaylandDisplayServer = struct {
 
         out.registry = c.wl_display_get_registry(out.display).?;
 
-        const registry_listener: c.wl_registry_listener = .{ .global = registry_handle_global, .global_remove = registry_handle_global_remove };
+        const registry_listener: c.wl_registry_listener = .{
+            .global = registry_handle_global,
+            .global_remove = registry_handle_global_remove,
+        };
         _ = c.wl_registry_add_listener(out.registry, &registry_listener, null);
 
         if (c.wl_display_roundtrip(out.display) == -1) {
@@ -126,15 +139,30 @@ pub const WaylandDisplayServer = struct {
         // Time to not think about that.
         for (&registryItems) |item| {
             if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.wl_compositor_interface.name))))) {
-                const compositor_ptr = c.wl_registry_bind(out.registry, item.name, &c.wl_compositor_interface, item.version);
+                const compositor_ptr = c.wl_registry_bind(
+                    out.registry,
+                    item.name,
+                    &c.wl_compositor_interface,
+                    item.version,
+                );
                 out.compositor = @ptrCast(@alignCast(compositor_ptr));
                 logger.info("Registered compositor", .{});
             } else if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.wl_shm_interface.name))))) {
-                const shm_ptr = c.wl_registry_bind(out.registry, item.name, &c.wl_shm_interface, item.version);
+                const shm_ptr = c.wl_registry_bind(
+                    out.registry,
+                    item.name,
+                    &c.wl_shm_interface,
+                    item.version,
+                );
                 out.shm = @ptrCast(@alignCast(shm_ptr));
                 logger.info("Registered SHM", .{});
             } else if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.xdg_wm_base_interface.name))))) {
-                const xdg_shell_ptr = c.wl_registry_bind(out.registry, item.name, &c.xdg_wm_base_interface, item.version);
+                const xdg_shell_ptr = c.wl_registry_bind(
+                    out.registry,
+                    item.name,
+                    &c.xdg_wm_base_interface,
+                    item.version,
+                );
                 out.xdg_wm_base = @ptrCast(@alignCast(xdg_shell_ptr));
                 logger.info("Registered XDG shell", .{});
             }
