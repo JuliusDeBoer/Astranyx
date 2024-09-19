@@ -110,7 +110,7 @@ pub const WaylandDisplayServer = struct {
         c.xdg_wm_base_pong(base, id);
     }
 
-    pub fn init(args: WaylandDisplayServerArgs) anyerror!Self {
+    pub fn init(args: WaylandDisplayServerArgs) !Self {
         var out = Self{ .compositor = undefined, .display = undefined };
         const display = c.wl_display_connect(null);
 
@@ -214,3 +214,22 @@ pub const WaylandDisplayServer = struct {
         return c.wl_display_dispatch(self.display) != 0;
     }
 };
+test "randName generates random name" {
+    const seed: u64 = 42;
+    var prng = std.rand.DefaultPrng.init(seed);
+    const random = prng.random();
+
+    const name1 = randName(random);
+    const name2 = randName(random);
+
+    try std.testing.expect(name1.len == 7);
+    try std.testing.expect(name2.len == 7);
+    try std.testing.expect(!std.mem.eql(u8, &name1, &name2));
+
+    for (name1) |char| {
+        try std.testing.expect(char >= 'a' and char <= 'z');
+    }
+    for (name2) |char| {
+        try std.testing.expect(char >= 'a' and char <= 'z');
+    }
+}
