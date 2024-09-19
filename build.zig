@@ -19,6 +19,7 @@ pub fn build(b: *std.Build) void {
     exe.addIncludePath(.{ .src_path = .{ .sub_path = "c", .owner = b } });
 
     exe.linkSystemLibrary2("wayland-client", .{ .preferred_link_mode = .static });
+    exe.linkSystemLibrary2("vulkan", .{ .preferred_link_mode = .static });
 
     b.installArtifact(exe);
 

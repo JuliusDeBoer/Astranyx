@@ -10,13 +10,19 @@ const State = struct {
     const Self = @This();
 
     displayServer: *wds.WaylandDisplayServer,
+    renderer: *vulkan.VulkanRenderer,
 
     pub fn clean(self: Self) void {
         logger.info("Gracefully exiting...\n", .{});
+        self.renderer.clean();
         self.displayServer.close();
     }
 };
-var state: State = .{ .displayServer = undefined };
+
+var state: State = .{
+    .displayServer = undefined,
+    .renderer = undefined,
+};
 
 pub fn cleanHandle(_: i32) callconv(.C) void {
     _ = std.io.getStdOut().write("\n") catch {};
@@ -31,7 +37,7 @@ pub fn main() !void {
     state.displayServer = @constCast(&displayServer);
 
     logger.info("Initializing Vulkan...", .{});
-    _ = try vulkan.VulkanRenderer.init();
+    state.renderer = @constCast(&try vulkan.VulkanRenderer.init());
 
     // Handle SIGINT (ctrl+c)
     //
