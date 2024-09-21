@@ -2,6 +2,7 @@ const std = @import("std");
 const wds = @import("window/wayland.zig");
 const vulkan = @import("rendering/VulkanRenderer.zig");
 const l = @import("logging.zig");
+const builtin = @import("builtin");
 
 const logger = l.Logger.init(@This());
 
@@ -30,7 +31,9 @@ pub fn cleanHandle(_: i32) callconv(.C) void {
 }
 
 pub fn main() !void {
-    logger.info("TODO: Show program version", .{});
+    // TODO: Show more info here
+    logger.info("Running a {s} build", .{if (builtin.mode == .Debug) "debug" else "release"});
+    logger.info("Zig version: {}", .{builtin.zig_version});
 
     logger.info("Initializing Wayland...", .{});
     const displayServer = try wds.WaylandDisplayServer.init(.{ .width = 640, .height = 480, .name = "Window maybe?" });

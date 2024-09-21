@@ -3,17 +3,24 @@ const c = @cImport({
 });
 const util = @import("util.zig");
 const std = @import("std");
+const builtin = @import("builtin");
 
 const logger = @import("../logging.zig").Logger.init(@This());
+
+const validationLayers = [_][*c]const u8{
+    "VK_LAYER_KHRONOS_validation",
+};
+
+const InstanceSettings = struct {
+    enableValidationLayers: bool,
+};
 
 pub const VulkanRenderer = struct {
     const Self = @This();
 
     instance: c.VkInstance = undefined,
 
-    pub fn init() !Self {
-        var self = Self{};
-
+    fn createInstance(self: *Self, settings: InstanceSettings) !void {
         // TODO: Tweak these versions
         const app_info = c.VkApplicationInfo{
             .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -24,11 +31,17 @@ pub const VulkanRenderer = struct {
             .apiVersion = c.VK_API_VERSION_1_0,
         };
 
-        const create_info = c.VkInstanceCreateInfo{
+        var create_info = c.VkInstanceCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
             .pApplicationInfo = &app_info,
-            .enabledLayerCount = 0,
         };
+
+        if (settings.enableValidationLayers) {
+            create_info.enabledLayerCount = validationLayers.len;
+            create_info.ppEnabledLayerNames = &validationLayers;
+        } else {
+            create_info.enabledLayerCount = 0;
+        }
 
         switch (c.vkCreateInstance(&create_info, null, &self.instance)) {
             c.VK_SUCCESS => {},
@@ -59,7 +72,74 @@ pub const VulkanRenderer = struct {
         }
 
         logger.info("Found {} extensions", .{extension_count});
+    }
 
+    fn validationLayersSupported() !bool {
+        var layer_count: u32 = 0;
+        switch (c.vkEnumerateInstanceLayerProperties(&layer_count, null)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not get instance layer properties: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        const available_layers = try std.heap.c_allocator.alloc(c.VkLayerProperties, layer_count);
+        defer std.heap.c_allocator.free(available_layers);
+
+        // SIGSEGV HERE!
+        switch (c.vkEnumerateInstanceLayerProperties(&layer_count, available_layers.ptr)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not get instance layer properties: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        for (validationLayers) |layerName| {
+            var found = false;
+
+            for (available_layers) |layer| {
+                if (std.mem.eql(
+                    u8,
+                    std.mem.span(@as([*:0]const u8, @ptrCast(layerName))),
+                    &layer.layerName,
+                )) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                logger.warn("Could not find layer: {s}", .{layerName});
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    fn registerValidationLayers(self: *Self) void {
+        _ = self;
+    }
+
+    pub fn init() !Self {
+        var self = Self{};
+        var enableValidationLayers = false;
+
+        if (builtin.mode == .Debug) {
+            if (try validationLayersSupported()) {
+                enableValidationLayers = true;
+            } else {
+                logger.warn("Cannot enable validation layers", .{});
+            }
+        }
+
+        try createInstance(&self, .{ .enableValidationLayers = enableValidationLayers });
+
+        if (enableValidationLayers) {
+            registerValidationLayers(&self);
+        }
         return self;
     }
 
