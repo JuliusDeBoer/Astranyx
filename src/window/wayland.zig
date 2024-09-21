@@ -69,10 +69,11 @@ pub const WaylandDisplayServer = struct {
     const Self = @This();
     const logger = l.Logger.init(Self);
 
-    display: *c.struct_wl_display = undefined,
-    compositor: *c.struct_wl_compositor = undefined,
-    registry: *c.wl_registry = undefined,
-    shm: *c.wl_shm = undefined,
+    wl_display: *c.struct_wl_display = undefined,
+    wl_compositor: *c.struct_wl_compositor = undefined,
+    wl_registry: *c.wl_registry = undefined,
+    wl_shm: *c.wl_shm = undefined,
+    wl_surface: *c.struct_wl_surface = undefined,
     xdg_wm_base: *c.xdg_wm_base = undefined,
     xdg_surface: *c.xdg_surface = undefined,
     xdg_toplevel: *c.xdg_toplevel = undefined,
@@ -111,7 +112,7 @@ pub const WaylandDisplayServer = struct {
     }
 
     pub fn init(args: WaylandDisplayServerArgs) !Self {
-        var out = Self{ .compositor = undefined, .display = undefined };
+        var self = Self{ .wl_compositor = undefined, .wl_display = undefined };
         const display = c.wl_display_connect(null);
 
         {
@@ -119,18 +120,18 @@ pub const WaylandDisplayServer = struct {
                 logger.err("Could not get display", .{});
                 return error.WaylandError;
             }
-            out.display = display.?;
+            self.wl_display = display.?;
         }
 
-        out.registry = c.wl_display_get_registry(out.display).?;
+        self.wl_registry = c.wl_display_get_registry(self.wl_display).?;
 
         const registry_listener: c.wl_registry_listener = .{
             .global = registry_handle_global,
             .global_remove = registry_handle_global_remove,
         };
-        _ = c.wl_registry_add_listener(out.registry, &registry_listener, null);
+        _ = c.wl_registry_add_listener(self.wl_registry, &registry_listener, null);
 
-        if (c.wl_display_roundtrip(out.display) == -1) {
+        if (c.wl_display_roundtrip(self.wl_display) == -1) {
             logger.err("wl_display_roundtrip failed. Cowardly exiting...", .{});
             return error.WaylandError;
         }
@@ -140,50 +141,50 @@ pub const WaylandDisplayServer = struct {
         for (&registryItems) |item| {
             if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.wl_compositor_interface.name))))) {
                 const compositor_ptr = c.wl_registry_bind(
-                    out.registry,
+                    self.wl_registry,
                     item.name,
                     &c.wl_compositor_interface,
                     item.version,
                 );
-                out.compositor = @ptrCast(@alignCast(compositor_ptr));
+                self.wl_compositor = @ptrCast(@alignCast(compositor_ptr));
                 logger.info("Registered compositor", .{});
             } else if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.wl_shm_interface.name))))) {
                 const shm_ptr = c.wl_registry_bind(
-                    out.registry,
+                    self.wl_registry,
                     item.name,
                     &c.wl_shm_interface,
                     item.version,
                 );
-                out.shm = @ptrCast(@alignCast(shm_ptr));
+                self.wl_shm = @ptrCast(@alignCast(shm_ptr));
                 logger.info("Registered SHM", .{});
             } else if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.xdg_wm_base_interface.name))))) {
                 const xdg_shell_ptr = c.wl_registry_bind(
-                    out.registry,
+                    self.wl_registry,
                     item.name,
                     &c.xdg_wm_base_interface,
                     item.version,
                 );
-                out.xdg_wm_base = @ptrCast(@alignCast(xdg_shell_ptr));
+                self.xdg_wm_base = @ptrCast(@alignCast(xdg_shell_ptr));
                 logger.info("Registered XDG shell", .{});
             }
         }
 
-        const surface = c.wl_compositor_create_surface(out.compositor);
-        _ = c.xdg_wm_base_add_listener(out.xdg_wm_base, &.{ .ping = handle_ping }, null);
+        self.wl_surface = c.wl_compositor_create_surface(self.wl_compositor).?;
+        _ = c.xdg_wm_base_add_listener(self.xdg_wm_base, &.{ .ping = handle_ping }, null);
 
-        out.xdg_surface = c.xdg_wm_base_get_xdg_surface(out.xdg_wm_base, surface).?;
-        out.xdg_toplevel = c.xdg_surface_get_toplevel(out.xdg_surface).?;
+        self.xdg_surface = c.xdg_wm_base_get_xdg_surface(self.xdg_wm_base, self.wl_surface).?;
+        self.xdg_toplevel = c.xdg_surface_get_toplevel(self.xdg_surface).?;
 
         // Haha. CNAME
         const c_name = std.mem.span(@as([*c]const u8, @ptrCast(args.name)));
-        c.xdg_toplevel_set_title(out.xdg_toplevel, c_name);
+        c.xdg_toplevel_set_title(self.xdg_toplevel, c_name);
 
         const stride = args.width * 4;
         const shm_pool_size: usize = @as(usize, @intCast(args.height * stride * 2));
 
         const fd = try allocateShmFile(@intCast(shm_pool_size));
         const pool_data = std.c.mmap(null, shm_pool_size, std.c.PROT.READ | std.c.PROT.WRITE, .{ .TYPE = .SHARED }, fd, 0);
-        const pool = c.wl_shm_create_pool(out.shm, fd, @intCast(shm_pool_size)).?;
+        const pool = c.wl_shm_create_pool(self.wl_shm, fd, @intCast(shm_pool_size)).?;
 
         const index = 0;
         const offset = args.height * stride * index;
@@ -192,28 +193,32 @@ pub const WaylandDisplayServer = struct {
 
         _ = pool_data;
 
-        c.wl_surface_attach(surface, buffer, 0, 0);
-        c.wl_surface_damage(surface, 0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
-        c.wl_surface_commit(surface);
+        c.wl_surface_attach(self.wl_surface, buffer, 0, 0);
+        c.wl_surface_damage(self.wl_surface, 0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
+        c.wl_surface_commit(self.wl_surface);
 
         logger.info("Initialized successfully", .{});
-        return out;
+        return self;
     }
 
     pub fn close(self: Self) void {
-        c.xdg_surface_destroy(self.xdg_surface);
         c.xdg_toplevel_destroy(self.xdg_toplevel);
+        c.xdg_surface_destroy(self.xdg_surface);
+        c.wl_surface_destroy(self.wl_surface);
         c.xdg_wm_base_destroy(self.xdg_wm_base);
+        c.wl_compositor_destroy(self.wl_compositor);
+        c.wl_registry_destroy(self.wl_registry);
+        c.wl_display_disconnect(self.wl_display);
 
-        c.wl_display_disconnect(self.display);
         logger.info("Closed connection", .{});
     }
 
     /// Event loop thingy
     pub fn dispatch(self: Self) bool {
-        return c.wl_display_dispatch(self.display) != 0;
+        return c.wl_display_dispatch(self.wl_display) != 0;
     }
 };
+
 test "randName generates random name" {
     const seed: u64 = 42;
     var prng = std.rand.DefaultPrng.init(seed);
