@@ -21,7 +21,11 @@
         pkgs.wayland
         pkgs.vulkan-loader
         pkgs.vulkan-headers
+        pkgs.vulkan-validation-layers
       ];
+      shellHook = ''
+        export VK_LAYER_PATH="${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
+      '';
     };
   };
 }

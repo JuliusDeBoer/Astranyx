@@ -13,7 +13,7 @@ to finished. *EVER*.
     - [ ] Xorg
   - [ ] Windows support
 - [ ] Vulkan rendering
-- [ ] CMS
+- [ ] ECS
 - [ ] Finishing TODO
 
 Once Gnome will actually support `xdg-decoration` I will look at supporting it
