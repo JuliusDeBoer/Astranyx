@@ -8,6 +8,14 @@ pub const Logger = struct {
     const stdout_writer = std.io.getStdOut().writer();
     const stderr_writer = std.io.getStdOut().writer();
 
+    const color = struct {
+        pub const cyan = "\x1b[36m";
+        pub const yellow = "\x1b[33m";
+        pub const red = "\x1b[31m";
+        pub const grey = "\x1b[90m";
+        pub const reset = "\x1b[0m";
+    };
+
     /// Create a new `Logger`
     ///
     /// ```zig
@@ -18,19 +26,19 @@ pub const Logger = struct {
     }
 
     pub fn info(self: Self, comptime fmt: []const u8, args: anytype) void {
-        _ = stdout_writer.print("({s}) INFO: ", .{self.name}) catch {};
+        _ = stdout_writer.print("{s}({s}){s} {s}INFO{s}: ", .{ color.grey, self.name, color.reset, color.cyan, color.reset }) catch {};
         _ = stdout_writer.print(fmt, args) catch {};
         _ = stdout_writer.print("\n", .{}) catch {};
     }
 
     pub fn warn(self: Self, comptime fmt: []const u8, args: anytype) void {
-        _ = stdout_writer.print("({s}) WARN: ", .{self.name}) catch {};
+        _ = stdout_writer.print("{s}({s}){s} {s}WARN{s}: ", .{ color.grey, self.name, color.reset, color.yellow, color.reset }) catch {};
         _ = stdout_writer.print(fmt, args) catch {};
         _ = stdout_writer.print("\n", .{}) catch {};
     }
 
     pub fn err(self: Self, comptime fmt: []const u8, args: anytype) void {
-        _ = stderr_writer.print("({s}) ERR: ", .{self.name}) catch {};
+        _ = stderr_writer.print("{s}({s}){s} {s}ERR{s}: ", .{ color.grey, self.name, color.reset, color.red, color.reset }) catch {};
         _ = stderr_writer.print(fmt, args) catch {};
         _ = stderr_writer.print("\n", .{}) catch {};
     }
