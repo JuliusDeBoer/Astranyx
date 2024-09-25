@@ -5,6 +5,7 @@ const c = @cImport({
 const util = @import("util.zig");
 const std = @import("std");
 const builtin = @import("builtin");
+const debug = @import("debug.zig");
 
 const logger = @import("../logging.zig").Logger.init(@This());
 
@@ -131,77 +132,9 @@ pub const VulkanRenderer = struct {
         return true;
     }
 
-    /// Register the debug logger for validation layers. There is no way to
-    /// tell if this function failed or not. So just hope it didnt
-    pub fn registerDebugLogger(self: Self) void {
-        const debug_create_info = c.VkDebugUtilsMessengerCreateInfoEXT{
-            .sType = c.VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-            .messageSeverity = c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-            .messageType = c.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | c.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT | c.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT,
-            .pfnUserCallback = debugLogCallback,
-        };
-
-        var vkCreateDebugUtilsMessengerEXT: c.PFN_vkCreateDebugUtilsMessengerEXT = undefined;
-        vkCreateDebugUtilsMessengerEXT = @ptrCast(c.vkGetInstanceProcAddr(self.instance, "vkCreateDebugUtilsMessengerEXT"));
-
-        if (vkCreateDebugUtilsMessengerEXT == null) {
-            logger.warn("Could not find vkCreateDebugUtilsMessengerEXT", .{});
-            return;
-        }
-
-        switch (vkCreateDebugUtilsMessengerEXT.?(
-            self.instance,
-            &debug_create_info,
-            null,
-            @constCast(&self.debug_messenger_handle),
-        )) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.warn("Could not register debug messenger: {s}", .{util.errorToString(e)});
-            },
-        }
-    }
-
-    // NOTE: We are ignoring VKAPI_ATTR and VKAPI_CALL. Lets hope this just
-    // works
-    fn debugLogCallback(
-        severity: c.VkDebugUtilsMessageSeverityFlagBitsEXT,
-        _: c.VkDebugUtilsMessageTypeFlagsEXT,
-        data: [*c]const c.VkDebugUtilsMessengerCallbackDataEXT,
-        _: ?*anyopaque,
-    ) callconv(.C) c.VkBool32 {
-        switch (severity) {
-            c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT => {
-                logger.info("[Validation layer]: {s}", .{data.*.pMessage});
-            },
-            c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT => {
-                logger.warn("[Validation layer]: {s}", .{data.*.pMessage});
-            },
-            c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT => {
-                logger.err("[Validation layer]: {s}", .{data.*.pMessage});
-            },
-            else => {},
-        }
-
-        return c.VK_FALSE;
-    }
-
-    /// Check if various vulkan macros are empty or not. If there is an error
-    /// it might just still work
-    fn validateVulkanMacros() void {
-        if (c.VKAPI_CALL.len != 0) {
-            @compileError("VKAPI_CALL is not empty!");
-        }
-        if (c.VKAPI_ATTR.len != 0) {
-            @compileError("VKAPI_ATTR is not empty!");
-        }
-    }
-
     pub fn init() !Self {
         var self = Self{};
         var enableValidationLayers = false;
-
-        comptime validateVulkanMacros();
 
         var instance_extensions = std.ArrayList([*c]const u8).init(std.heap.c_allocator);
         defer instance_extensions.deinit();
@@ -221,7 +154,7 @@ pub const VulkanRenderer = struct {
         });
 
         if (enableValidationLayers) {
-            self.registerDebugLogger();
+            debug.registerDebugLogger(&self);
         }
         return self;
     }
