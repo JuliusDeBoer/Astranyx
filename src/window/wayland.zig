@@ -103,7 +103,7 @@ pub const WaylandDisplayServer = struct {
         _ = registry;
         _ = data;
         _ = name;
-        logger.info("TODO: Handle removing from registry", .{});
+        logger.warn("TODO: Handle removing from registry", .{});
     }
 
     // I dont know if this only handles ping or other things too.

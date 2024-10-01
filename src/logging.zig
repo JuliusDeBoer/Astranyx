@@ -9,9 +9,10 @@ pub const Logger = struct {
     const stderr_writer = std.io.getStdOut().writer();
 
     const color = struct {
-        pub const cyan = "\x1b[36m";
-        pub const yellow = "\x1b[33m";
-        pub const red = "\x1b[31m";
+        pub const bold = "\x1b[1m";
+        pub const cyan = bold ++ "\x1b[36m";
+        pub const yellow = bold ++ "\x1b[33m";
+        pub const red = bold ++ "\x1b[31m";
         pub const grey = "\x1b[90m";
         pub const reset = "\x1b[0m";
     };
