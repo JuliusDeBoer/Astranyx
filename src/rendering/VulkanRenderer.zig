@@ -32,6 +32,7 @@ pub const VulkanRenderer = struct {
 
     instance: c.VkInstance = undefined,
     debug_messenger_handle: c.VkDebugUtilsMessengerEXT = undefined,
+    physical_device: c.VkPhysicalDevice = undefined,
 
     fn createInstance(self: *Self, settings: InstanceSettings) !void {
         // TODO: Tweak these versions
@@ -132,6 +133,63 @@ pub const VulkanRenderer = struct {
         return true;
     }
 
+    // TODO: Look into VkPhysicalDeviceProperties2 and
+    // VkPhysicalDeviceFeatures2
+    fn isDeviceSuitable(device: *c.VkPhysicalDevice) bool {
+        // var features: c.VkPhysicalDeviceFeatures = undefined;
+        // c.vkGetPhysicalDeviceFeatures(device.*, &features);
+        var properties: c.VkPhysicalDeviceProperties = undefined;
+        c.vkGetPhysicalDeviceProperties(device.*, &properties);
+        return properties.deviceType == c.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU or properties.deviceType == c.VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+    }
+
+    fn pickPhysicalDevice(self: *Self) !void {
+        var device_count: u32 = 0;
+        switch (c.vkEnumeratePhysicalDevices(self.instance, &device_count, null)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Failed to get physical devices: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        if (device_count == 0) {
+            logger.err("Failed to find device with Vulkan support", .{});
+            return error.VulkanError;
+        }
+
+        const devices = try std.heap.c_allocator.alloc(c.VkPhysicalDevice, device_count);
+        defer std.heap.c_allocator.free(devices);
+
+        switch (c.vkEnumeratePhysicalDevices(self.instance, &device_count, devices.ptr)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Failed to get physical devices: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        var selected_device: c.VkPhysicalDevice = undefined;
+
+        for (devices) |device| {
+            // Maybe score these to pick the best one. But who cares about
+            // performance anyway
+            if (isDeviceSuitable(@constCast(&device))) {
+                selected_device = device;
+            }
+        }
+
+        if (selected_device == undefined) {
+            logger.err("Could not get suitable device", .{});
+            return error.VulkanError;
+        }
+
+        var properties: c.VkPhysicalDeviceProperties = undefined;
+        c.vkGetPhysicalDeviceProperties(selected_device, &properties);
+
+        logger.info("Chosen a suitable GPU: {s}", .{properties.deviceName});
+    }
+
     pub fn init() !Self {
         var self = Self{};
         var enableValidationLayers = false;
@@ -146,7 +204,6 @@ pub const VulkanRenderer = struct {
                 logger.warn("Cannot enable validation layers", .{});
             }
         }
-
         try self.createInstance(.{
             .debug = enableValidationLayers,
             .extensions = instance_extensions.items.ptr,
@@ -156,6 +213,9 @@ pub const VulkanRenderer = struct {
         if (enableValidationLayers) {
             debug.registerDebugLogger(&self);
         }
+
+        try self.pickPhysicalDevice();
+
         return self;
     }
 

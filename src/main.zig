@@ -13,10 +13,11 @@ const State = struct {
     displayServer: *wds.WaylandDisplayServer,
     renderer: *vulkan.VulkanRenderer,
 
-    pub fn clean(self: Self) void {
+    pub fn clean(self: *Self) void {
         logger.info("Gracefully exiting...\n", .{});
         self.renderer.clean();
         self.displayServer.close();
+        logger.info("Exited", .{});
     }
 };
 
@@ -26,8 +27,8 @@ var state: State = .{
 };
 
 pub fn cleanHandle(_: i32) callconv(.C) void {
-    _ = std.io.getStdOut().write("\n") catch {};
     state.clean();
+    std.posix.exit(0);
 }
 
 pub fn main() !void {
@@ -46,7 +47,11 @@ pub fn main() !void {
     //
     // This does not work for windows since it doesnt actually uses signals for
     // handling ctrl+c. Too bad!
-    const handler: std.posix.Sigaction = .{ .handler = .{ .handler = cleanHandle }, .mask = std.posix.empty_sigset, .flags = 0 };
+    const handler: std.posix.Sigaction = .{
+        .handler = .{ .handler = cleanHandle },
+        .mask = std.posix.empty_sigset,
+        .flags = 0,
+    };
     std.posix.sigaction(std.posix.SIG.INT, &handler, null) catch {
         logger.warn("Cannot handle SIGINT", .{});
     };
@@ -60,6 +65,5 @@ pub fn main() !void {
 comptime {
     // This is dumb. Howver the testing gods have forced my hands
     _ = @import("window/wayland.zig");
-    // _ = @import("logging.zig");
-    // _ = @import("rendering/VulkanRenderer.zig");
+    _ = @import("rendering/debug.zig");
 }

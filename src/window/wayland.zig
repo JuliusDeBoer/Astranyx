@@ -215,7 +215,7 @@ pub const WaylandDisplayServer = struct {
 
     /// Event loop thingy
     pub fn dispatch(self: Self) bool {
-        return c.wl_display_dispatch(self.wl_display) != 0;
+        return c.wl_display_dispatch(self.wl_display) != -1;
     }
 };
 
