@@ -13,11 +13,13 @@ const validation_layers = [_][*c]const u8{
     "VK_LAYER_KHRONOS_validation",
 };
 
+const QueueFamilyIndices = struct {
+    graphicsFamily: u32,
+};
+
 // Pure guesswork. Probably missing something
 const extenions = [_][*c]const u8{
     c.VK_KHR_SURFACE_EXTENSION_NAME,
-    // TODO: Remove this one on release
-    // c.VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
     "VK_KHR_wayland_surface",
 };
 
@@ -133,8 +135,6 @@ pub const VulkanRenderer = struct {
         return true;
     }
 
-    // TODO: Look into VkPhysicalDeviceProperties2 and
-    // VkPhysicalDeviceFeatures2
     fn isDeviceSuitable(device: *c.VkPhysicalDevice) bool {
         // var features: c.VkPhysicalDeviceFeatures = undefined;
         // c.vkGetPhysicalDeviceFeatures(device.*, &features);
@@ -188,6 +188,27 @@ pub const VulkanRenderer = struct {
         c.vkGetPhysicalDeviceProperties(selected_device, &properties);
 
         logger.info("Chosen a suitable GPU: {s}", .{properties.deviceName});
+
+        self.physical_device = selected_device;
+    }
+
+    fn findQueueFamilies(device: c.VkPhysicalDevice) !QueueFamilyIndices {
+        var indecies: QueueFamilyIndices = undefined;
+
+        var family_count: u32 = 0;
+        c.vkGetPhysicalDeviceQueueFamilyProperties(device, &family_count, null);
+        const families = try std.heap.c_allocator.alloc(c.VkQueueFamilyProperties, family_count);
+        defer std.heap.c_allocator.free(families);
+        c.vkGetPhysicalDeviceQueueFamilyProperties(device, &family_count, families.ptr);
+        var i: u32 = 0;
+        for (families) |family| {
+            if ((family.queueFlags & c.VK_QUEUE_GRAPHICS_BIT) != 0) {
+                indecies.graphicsFamily = i;
+            }
+            i += 1;
+        }
+
+        return indecies;
     }
 
     pub fn init() !Self {
@@ -215,6 +236,9 @@ pub const VulkanRenderer = struct {
         }
 
         try self.pickPhysicalDevice();
+
+        const queue = try findQueueFamilies(self.physical_device);
+        _ = queue;
 
         return self;
     }
