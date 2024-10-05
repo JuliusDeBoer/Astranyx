@@ -10,11 +10,12 @@ to finished. *EVER*.
     - [ ] Wayland
       - [X] Creating a window
       - [ ] Support `xdg-decoration`
-    - [ ] Xorg
-  - [ ] Windows support
+  - [ ] Windows support (haha)
 - [ ] Vulkan rendering
+  - [ ] Look into the "2" version of some api stuff
 - [ ] ECS
-- [ ] Finishing TODO
+- [ ] Asset loading
+- [ ] UI system
 
 Once Gnome will actually support `xdg-decoration` I will look at supporting it
 again. Until then I'll just complain about how terrible it is for them to not
