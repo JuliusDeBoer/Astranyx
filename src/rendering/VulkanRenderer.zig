@@ -35,6 +35,8 @@ pub const VulkanRenderer = struct {
     instance: c.VkInstance = undefined,
     debug_messenger_handle: c.VkDebugUtilsMessengerEXT = undefined,
     physical_device: c.VkPhysicalDevice = undefined,
+    queue: QueueFamilyIndices = undefined,
+    device: c.VkDevice = undefined,
 
     fn createInstance(self: *Self, settings: InstanceSettings) !void {
         // TODO: Tweak these versions
@@ -192,23 +194,70 @@ pub const VulkanRenderer = struct {
         self.physical_device = selected_device;
     }
 
-    fn findQueueFamilies(device: c.VkPhysicalDevice) !QueueFamilyIndices {
-        var indecies: QueueFamilyIndices = undefined;
+    fn findQueueFamilies(self: *Self) !void {
+        var indecies: QueueFamilyIndices = .{ .graphicsFamily = undefined };
 
         var family_count: u32 = 0;
-        c.vkGetPhysicalDeviceQueueFamilyProperties(device, &family_count, null);
+        c.vkGetPhysicalDeviceQueueFamilyProperties(self.physical_device, &family_count, null);
         const families = try std.heap.c_allocator.alloc(c.VkQueueFamilyProperties, family_count);
         defer std.heap.c_allocator.free(families);
-        c.vkGetPhysicalDeviceQueueFamilyProperties(device, &family_count, families.ptr);
+        c.vkGetPhysicalDeviceQueueFamilyProperties(self.physical_device, &family_count, families.ptr);
+
         var i: u32 = 0;
+        var success = false;
         for (families) |family| {
             if ((family.queueFlags & c.VK_QUEUE_GRAPHICS_BIT) != 0) {
                 indecies.graphicsFamily = i;
+                success = true;
             }
             i += 1;
         }
 
-        return indecies;
+        if (!success) {
+            logger.err("Could not get device queue family", .{});
+            return error.VulkanError;
+        }
+
+        self.queue = indecies;
+    }
+
+    fn createLogicalDevice(self: *Self, layers: std.ArrayList([*c]const u8)) !void {
+        const queue_priority: f32 = 1;
+        const device_queue_info: c.VkDeviceQueueCreateInfo = .{
+            .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .queueFamilyIndex = self.queue.graphicsFamily,
+            .queueCount = 1,
+            .pQueuePriorities = &queue_priority,
+        };
+
+        const device_features: c.VkPhysicalDeviceFeatures = .{};
+
+        var device_info: c.VkDeviceCreateInfo = .{
+            .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+            .pQueueCreateInfos = &device_queue_info,
+            .queueCreateInfoCount = 1,
+            .pEnabledFeatures = &device_features,
+        };
+
+        if (comptime false) {
+            @compileLog("Supporting deprecated ppEnabledLayerNames in VkDeviceCreateInfo");
+            logger.warn("Supporting deprecated ppEnabledLayerNames in VkDeviceCreateInfo");
+            if (layers.items.len > 0) {
+                logger.info("Adding {} layers to device initialization", .{layers.items.len});
+                device_info.enabledLayerCount = @intCast(layers.items.len);
+                device_info.ppEnabledLayerNames = layers.items.ptr;
+            } else {
+                device_info.ppEnabledLayerNames = 0;
+            }
+        }
+
+        switch (c.vkCreateDevice(self.physical_device, &device_info, null, &self.device)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not create device: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
     }
 
     pub fn init() !Self {
@@ -236,14 +285,15 @@ pub const VulkanRenderer = struct {
         }
 
         try self.pickPhysicalDevice();
-
-        const queue = try findQueueFamilies(self.physical_device);
-        _ = queue;
+        try self.findQueueFamilies();
+        try self.createLogicalDevice(instance_extensions);
 
         return self;
     }
 
     pub fn clean(self: *Self) void {
+        c.vkDestroyDevice(self.device, null);
+
         if (self.debug_messenger_handle != undefined) {
             const vkDestroyDebugUtilsMessengerEXT: c.PFN_vkDestroyDebugUtilsMessengerEXT = @ptrCast(c.vkGetInstanceProcAddr(self.instance, "vkDestroyDebugUtilsMessengerEXT"));
             if (vkDestroyDebugUtilsMessengerEXT != null) {
