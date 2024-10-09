@@ -35,8 +35,9 @@ pub const VulkanRenderer = struct {
     instance: c.VkInstance = undefined,
     debug_messenger_handle: c.VkDebugUtilsMessengerEXT = undefined,
     physical_device: c.VkPhysicalDevice = undefined,
-    queue: QueueFamilyIndices = undefined,
+    queue_family: QueueFamilyIndices = undefined,
     device: c.VkDevice = undefined,
+    queue: c.VkQueue = undefined,
 
     fn createInstance(self: *Self, settings: InstanceSettings) !void {
         // TODO: Tweak these versions
@@ -218,14 +219,14 @@ pub const VulkanRenderer = struct {
             return error.VulkanError;
         }
 
-        self.queue = indecies;
+        self.queue_family = indecies;
     }
 
     fn createLogicalDevice(self: *Self, layers: std.ArrayList([*c]const u8)) !void {
         const queue_priority: f32 = 1;
         const device_queue_info: c.VkDeviceQueueCreateInfo = .{
             .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-            .queueFamilyIndex = self.queue.graphicsFamily,
+            .queueFamilyIndex = self.queue_family.graphicsFamily,
             .queueCount = 1,
             .pQueuePriorities = &queue_priority,
         };
@@ -260,6 +261,10 @@ pub const VulkanRenderer = struct {
         }
     }
 
+    fn getQueue(self: *Self) void {
+        c.vkGetDeviceQueue(self.device, self.queue_family.graphicsFamily, 0, &self.queue);
+    }
+
     pub fn init() !Self {
         var self = Self{};
         var enableValidationLayers = false;
@@ -287,6 +292,7 @@ pub const VulkanRenderer = struct {
         try self.pickPhysicalDevice();
         try self.findQueueFamilies();
         try self.createLogicalDevice(instance_extensions);
+        self.getQueue();
 
         return self;
     }
