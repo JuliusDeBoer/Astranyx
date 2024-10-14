@@ -27,6 +27,7 @@ var state: State = .{
 };
 
 pub fn cleanHandle(_: i32) callconv(.C) void {
+    std.debug.print("\n", .{});
     state.clean();
     std.posix.exit(0);
 }
@@ -41,7 +42,7 @@ pub fn main() !void {
     state.displayServer = @constCast(&displayServer);
 
     logger.info("Initializing Vulkan...", .{});
-    state.renderer = @constCast(&try vulkan.VulkanRenderer.init());
+    state.renderer = @constCast(&try vulkan.VulkanRenderer.init(@constCast(&displayServer)));
 
     // Handle SIGINT (ctrl+c)
     //
