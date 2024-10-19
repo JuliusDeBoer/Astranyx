@@ -3,6 +3,10 @@
 A 2D video game project that will 100% never ever ever be even remotely closo
 to finished. *EVER*.
 
+This program will not use any libraries like GLFW or Sokol. Because I hate
+myself. I am using libraries like wayland and vulkan. But that doesnt count.
+Does it?
+
 ## TODO
 
 - [ ] Windowing system
@@ -15,6 +19,9 @@ to finished. *EVER*.
   - [ ] Look into the "2" version of some api stuff
 - [ ] ECS
 - [ ] Asset loading
+  - [ ] Hot reloading
+- [ ] Sound system
+- [ ] Input system
 - [ ] UI system
 
 Once Gnome will actually support `xdg-decoration` I will look at supporting it
@@ -23,4 +30,4 @@ support SSD. Idiots...
 
 ## Why not C?
 
-I dont like the C build system.
+I dont like the C build system. Plus zig looke cool
