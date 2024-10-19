@@ -21,15 +21,25 @@ const QueueFamilyIndices = struct {
 };
 
 // Pure guesswork. Probably missing something
-const extenions = [_][*c]const u8{
+const instance_extenions = [_][*c]const u8{
     c.VK_KHR_SURFACE_EXTENSION_NAME,
     c.VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
+};
+
+const device_extensions = [_][*c]const u8{
+    c.VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 };
 
 const InstanceSettings = struct {
     debug: bool,
     extensions: [*c]const [*c]const u8,
     extension_count: u32,
+};
+
+const SwapChainDetails = struct {
+    capabilities: c.VkSurfaceCapabilitiesKHR,
+    formats: []c.VkSurfaceFormatKHR,
+    present_modes: []c.VkPresentModeKHR,
 };
 
 pub const VulkanRenderer = struct {
@@ -143,12 +153,25 @@ pub const VulkanRenderer = struct {
         return true;
     }
 
-    fn isDeviceSuitable(device: *c.VkPhysicalDevice) bool {
+    fn isDeviceSuitable(self: *Self, device: *c.VkPhysicalDevice) bool {
         // var features: c.VkPhysicalDeviceFeatures = undefined;
         // c.vkGetPhysicalDeviceFeatures(device.*, &features);
         var properties: c.VkPhysicalDeviceProperties = undefined;
         c.vkGetPhysicalDeviceProperties(device.*, &properties);
-        return properties.deviceType == c.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU or properties.deviceType == c.VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+
+        const extension_support = checkExtensionSupport(device);
+
+        var swap_chain_adequate = false;
+        if (extension_support) {
+            const swap_chain_support: SwapChainDetails = self.querySwapChainSupport(device.*) catch return false;
+            swap_chain_adequate = swap_chain_support.formats.len > 0 and
+                swap_chain_support.present_modes.len > 0;
+        }
+
+        return (properties.deviceType == c.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU or
+            properties.deviceType == c.VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) and
+            extension_support and
+            swap_chain_adequate;
     }
 
     fn pickPhysicalDevice(self: *Self) !void {
@@ -182,7 +205,7 @@ pub const VulkanRenderer = struct {
         for (devices) |device| {
             // Maybe score these to pick the best one. But who cares about
             // performance anyway
-            if (isDeviceSuitable(@constCast(&device))) {
+            if (self.isDeviceSuitable(@constCast(&device))) {
                 selected_device = device;
             }
         }
@@ -241,6 +264,100 @@ pub const VulkanRenderer = struct {
         self.queue_family = indecies;
     }
 
+    fn checkExtensionSupport(device: *c.VkPhysicalDevice) bool {
+        var extension_count: u32 = undefined;
+
+        switch (c.vkEnumerateDeviceExtensionProperties(device.*, null, &extension_count, null)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not get extension properties: {s}", .{util.errorToString(e)});
+                return false;
+            },
+        }
+
+        const available_extensions = std.heap.c_allocator.alloc(c.VkExtensionProperties, extension_count) catch |e| {
+            logger.err("Could not allocate memory for array at {}: {}", .{ @This(), e });
+            return false;
+        };
+        defer std.heap.c_allocator.free(available_extensions);
+
+        switch (c.vkEnumerateDeviceExtensionProperties(device.*, null, &extension_count, available_extensions.ptr)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not get extension properties: {s}", .{util.errorToString(e)});
+                return false;
+            },
+        }
+
+        for (device_extensions) |required_ext| {
+            var found = false;
+            for (available_extensions) |available_ext| {
+                if (c.strcmp(required_ext, &available_ext.extensionName) == 0) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    fn querySwapChainSupport(self: *Self, device: c.VkPhysicalDevice) !SwapChainDetails {
+        var details = SwapChainDetails{
+            .capabilities = undefined,
+            .formats = undefined,
+            .present_modes = undefined,
+        };
+
+        switch (c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, self.surface, &details.capabilities)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not get physical durface capabilities: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        var format_count: u32 = undefined;
+        switch (c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, self.surface, &format_count, null)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not get physical surface formats: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+        details.formats = try std.heap.c_allocator.alloc(c.VkSurfaceFormatKHR, format_count);
+        defer std.heap.c_allocator.free(details.formats);
+        switch (c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, self.surface, &format_count, details.formats.ptr)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not get physical surface formats: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        var present_mode_count: u32 = undefined;
+        switch (c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, self.surface, &present_mode_count, null)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not get physical surface present modes: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+        details.present_modes = try std.heap.c_allocator.alloc(c.VkPresentModeKHR, present_mode_count);
+        defer std.heap.c_allocator.free(details.present_modes);
+        switch (c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, self.surface, &present_mode_count, details.present_modes.ptr)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not get physical surface present modes: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        return details;
+    }
+
     fn createLogicalDevice(self: *Self, layers: std.ArrayList([*c]const u8)) !void {
         var unique_indices = std.AutoHashMap(u32, void).init(std.heap.c_allocator);
         defer unique_indices.deinit();
@@ -271,6 +388,8 @@ pub const VulkanRenderer = struct {
             .queueCreateInfoCount = @intCast(queue_create_infos.len),
             .pQueueCreateInfos = queue_create_infos.ptr,
             .pEnabledFeatures = &device_features,
+            .ppEnabledExtensionNames = &device_extensions,
+            .enabledExtensionCount = device_extensions.len,
         };
 
         if (comptime false) {
@@ -315,6 +434,29 @@ pub const VulkanRenderer = struct {
         }
     }
 
+    fn chooseSwapChainFormat(formats: []c.VkSurfaceFormatKHR) c.VkSuraceFormatKHR {
+        for (formats) |format| {
+            if (format.format == c.VK_FORMAT_B8G8R8A8_SRGB and
+                format.colorSpace == c.VK_COLORSPACE_SRGB_NONLINEAR_KHR)
+            {
+                return format;
+            }
+        }
+        // Give up
+        return formats[0];
+    }
+
+    fn chooseSwapChainPresentMode(present_modes: []c.VkPresentModeKHR) c.VkPresentMode {
+        for (present_modes) |present_mode| {
+            if (present_mode == c.VK_PRESENT_MODE_MAILBOX_KHRA) {
+                return present_mode;
+            }
+        }
+        // If we cant get the prefered mode. Just pick FIFO. Since its always
+        // present
+        return c.VK_PRESENT_MODE_FIFO_KHR;
+    }
+
     pub fn init(wlds: *wl.WaylandDisplayServer) !Self {
         var self = Self{};
         var enableValidationLayers = false;
@@ -322,7 +464,7 @@ pub const VulkanRenderer = struct {
         var instance_extensions = std.ArrayList([*c]const u8).init(std.heap.c_allocator);
         defer instance_extensions.deinit();
 
-        for (extenions) |extension| {
+        for (instance_extenions) |extension| {
             try instance_extensions.append(extension);
         }
 
@@ -344,8 +486,8 @@ pub const VulkanRenderer = struct {
             debug.registerDebugLogger(&self);
         }
 
-        try self.pickPhysicalDevice();
         try self.createSurface(wlds);
+        try self.pickPhysicalDevice();
         try self.findQueueFamilies();
         try self.createLogicalDevice(instance_extensions);
         self.getQueue();
