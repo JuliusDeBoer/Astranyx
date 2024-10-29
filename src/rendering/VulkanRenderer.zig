@@ -20,7 +20,6 @@ const QueueFamilyIndices = struct {
     present_family: u32,
 };
 
-// Pure guesswork. Probably missing something
 const instance_extenions = [_][*c]const u8{
     c.VK_KHR_SURFACE_EXTENSION_NAME,
     c.VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
@@ -45,19 +44,26 @@ const SwapChainDetails = struct {
 pub const VulkanRenderer = struct {
     const Self = @This();
 
-    wlds: *wl.WaylandDisplayServer = undefined,
     instance: c.VkInstance = undefined,
-    debug_messenger_handle: c.VkDebugUtilsMessengerEXT = undefined,
-    physical_device: c.VkPhysicalDevice = undefined,
-    queue_family: QueueFamilyIndices = undefined,
     device: c.VkDevice = undefined,
+    physical_device: c.VkPhysicalDevice = undefined,
+
     queue: c.VkQueue = undefined,
-    surface: c.VkSurfaceKHR = undefined,
     present_queue: c.VkQueue = undefined,
+    queue_family: QueueFamilyIndices = undefined,
+
+    wlds: *wl.WaylandDisplayServer = undefined,
+    surface: c.VkSurfaceKHR = undefined,
+
     swap_chain: c.VkSwapchainKHR = undefined,
+    swap_chain_images: []c.VkImage = undefined,
+    swap_chain_image_format: c.VkSurfaceFormatKHR = undefined,
+    swap_chain_extent: c.VkExtent2D = undefined,
+
+    debug_messenger_handle: c.VkDebugUtilsMessengerEXT = undefined,
 
     fn createInstance(self: *Self, settings: InstanceSettings) !void {
-        // TODO: Tweak these versions
+        // TODO(Julius): Tweak these versions
         const app_info = c.VkApplicationInfo{
             .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
             .pApplicationName = "Astranyx",
@@ -137,8 +143,8 @@ pub const VulkanRenderer = struct {
             var found = false;
 
             for (available_layers) |layer| {
-                // NOTE: Use strcmp here because I am not cutting off the 200-ish
-                // null terminators. Thanks Vulkan!
+                // NOTE(Julius): Use strcmp here because I am not cutting off
+                // the 200-ish null terminators. Thanks Vulkan!
                 if (c.strcmp(layer_name, &layer.layerName) == 0) {
                     logger.info("Found required layer: {s}", .{&layer.layerName});
                     found = true;
@@ -205,8 +211,8 @@ pub const VulkanRenderer = struct {
         var selected_device: c.VkPhysicalDevice = undefined;
 
         for (devices) |device| {
-            // Maybe score these to pick the best one. But who cares about
-            // performance anyway
+            // NOTE(Julius): Maybe score these to pick the best one. But who
+            // cares about performance anyway
             if (self.isDeviceSuitable(@constCast(&device))) {
                 selected_device = device;
             }
@@ -444,14 +450,13 @@ pub const VulkanRenderer = struct {
 
     fn chooseSwapChainSurfaceFormat(formats: []c.VkSurfaceFormatKHR) c.VkSurfaceFormatKHR {
         for (formats) |format| {
-            logger.info("Enumerating format {}", .{format});
             if (format.format == c.VK_FORMAT_B8G8R8A8_SRGB and
                 format.colorSpace == c.VK_COLORSPACE_SRGB_NONLINEAR_KHR)
             {
                 return format;
             }
         }
-        // Give up
+        // NOTE(Julius): Give up
         return formats[0];
     }
 
@@ -461,8 +466,8 @@ pub const VulkanRenderer = struct {
                 return present_mode;
             }
         }
-        // If we cant get the prefered mode. Just pick FIFO. Since its always
-        // present
+        // NOTE(Julius): If we cant get the prefered mode. Just pick FIFO.
+        // Since its always present
         return c.VK_PRESENT_MODE_FIFO_KHR;
     }
 
@@ -510,6 +515,27 @@ pub const VulkanRenderer = struct {
                 return error.VulkanError;
             },
         }
+
+        switch (c.vkGetSwapchainImagesKHR(self.device, self.swap_chain, &image_count, null)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not get swapchain image count: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        self.swap_chain_images = try std.heap.c_allocator.alloc(c.VkImage, image_count);
+
+        switch (c.vkGetSwapchainImagesKHR(self.device, self.swap_chain, &image_count, self.swap_chain_images.ptr)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not get swapchain images: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        self.swap_chain_image_format = format;
+        self.swap_chain_extent = extent;
     }
 
     pub fn init(wlds: *wl.WaylandDisplayServer) !Self {

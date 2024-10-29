@@ -34,7 +34,7 @@ fn createShmFile() !c_int {
         }
     }
 
-    // TODO: Make this its own error maybe
+    // TODO(Julius): Make this its own error maybe
     return error.WaylandError;
 }
 
@@ -56,10 +56,10 @@ fn allocateShmFile(size: i32) !c_int {
 
 pub const RegistryItem = struct { name: u32, interface: []const u8, version: u32 };
 
-// This is horrible! I hate it!
-// It also might should maybe could be a mutex.
+// NOTE(Julius): This is horrible! I hate it! It also might should maybe could
+// be a mutex.
 var registryItems: [64]RegistryItem = undefined;
-// This one might even be worse
+// NOTE(Julius): This one might even be worse
 var registryItemsCount: u6 = 0;
 
 const WaylandDisplayServerArgs = struct { name: []const u8, width: i32, height: i32 };
@@ -108,7 +108,7 @@ pub const WaylandDisplayServer = struct {
         logger.warn("TODO: Handle removing from registry", .{});
     }
 
-    // I dont know if this only handles ping or other things too.
+    // NOTE(Julius): I dont know if this only handles ping or other things too.
     pub fn handle_ping(_: ?*anyopaque, base: ?*c.struct_xdg_wm_base, id: u32) callconv(.C) void {
         c.xdg_wm_base_pong(base, id);
     }
@@ -180,7 +180,7 @@ pub const WaylandDisplayServer = struct {
         self.xdg_surface = c.xdg_wm_base_get_xdg_surface(self.xdg_wm_base, self.wl_surface).?;
         self.xdg_toplevel = c.xdg_surface_get_toplevel(self.xdg_surface).?;
 
-        // Haha. CNAME
+        // NOTE(Julius) Haha. CNAME
         const c_name = std.mem.span(@as([*c]const u8, @ptrCast(args.name)));
         c.xdg_toplevel_set_title(self.xdg_toplevel, c_name);
 
