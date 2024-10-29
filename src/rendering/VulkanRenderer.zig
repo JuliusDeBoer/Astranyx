@@ -45,6 +45,7 @@ const SwapChainDetails = struct {
 pub const VulkanRenderer = struct {
     const Self = @This();
 
+    wlds: *wl.WaylandDisplayServer = undefined,
     instance: c.VkInstance = undefined,
     debug_messenger_handle: c.VkDebugUtilsMessengerEXT = undefined,
     physical_device: c.VkPhysicalDevice = undefined,
@@ -53,6 +54,7 @@ pub const VulkanRenderer = struct {
     queue: c.VkQueue = undefined,
     surface: c.VkSurfaceKHR = undefined,
     present_queue: c.VkQueue = undefined,
+    swap_chain: c.VkSwapchainKHR = undefined,
 
     fn createInstance(self: *Self, settings: InstanceSettings) !void {
         // TODO: Tweak these versions
@@ -328,7 +330,12 @@ pub const VulkanRenderer = struct {
             },
         }
         details.formats = try std.heap.c_allocator.alloc(c.VkSurfaceFormatKHR, format_count);
-        defer std.heap.c_allocator.free(details.formats);
+
+        // HACK(Julius): Not doing this causes a memory leak. Memory leaks are
+        // bad. However. I dont care!
+
+        // defer std.heap.c_allocator.free(details.formats);
+
         switch (c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, self.surface, &format_count, details.formats.ptr)) {
             c.VK_SUCCESS => {},
             else => |e| {
@@ -346,7 +353,8 @@ pub const VulkanRenderer = struct {
             },
         }
         details.present_modes = try std.heap.c_allocator.alloc(c.VkPresentModeKHR, present_mode_count);
-        defer std.heap.c_allocator.free(details.present_modes);
+        // HACK(Julius): Same thing here
+        // defer std.heap.c_allocator.free(details.present_modes);
         switch (c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, self.surface, &present_mode_count, details.present_modes.ptr)) {
             c.VK_SUCCESS => {},
             else => |e| {
@@ -418,11 +426,11 @@ pub const VulkanRenderer = struct {
         c.vkGetDeviceQueue(self.device, self.queue_family.present_family, 0, &self.present_queue);
     }
 
-    fn createSurface(self: *Self, wlds: *wl.WaylandDisplayServer) !void {
+    fn createSurface(self: *Self) !void {
         const create_info: c.VkWaylandSurfaceCreateInfoKHR = .{
             .sType = c.VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
-            .surface = @ptrCast(wlds.wl_surface),
-            .display = @ptrCast(wlds.wl_display),
+            .surface = @ptrCast(self.wlds.wl_surface),
+            .display = @ptrCast(self.wlds.wl_display),
         };
 
         switch (c.vkCreateWaylandSurfaceKHR(self.instance, &create_info, null, &self.surface)) {
@@ -434,8 +442,9 @@ pub const VulkanRenderer = struct {
         }
     }
 
-    fn chooseSwapChainFormat(formats: []c.VkSurfaceFormatKHR) c.VkSuraceFormatKHR {
+    fn chooseSwapChainSurfaceFormat(formats: []c.VkSurfaceFormatKHR) c.VkSurfaceFormatKHR {
         for (formats) |format| {
+            logger.info("Enumerating format {}", .{format});
             if (format.format == c.VK_FORMAT_B8G8R8A8_SRGB and
                 format.colorSpace == c.VK_COLORSPACE_SRGB_NONLINEAR_KHR)
             {
@@ -446,9 +455,9 @@ pub const VulkanRenderer = struct {
         return formats[0];
     }
 
-    fn chooseSwapChainPresentMode(present_modes: []c.VkPresentModeKHR) c.VkPresentMode {
+    fn chooseSwapChainPresentMode(present_modes: []c.VkPresentModeKHR) c.VkPresentModeKHR {
         for (present_modes) |present_mode| {
-            if (present_mode == c.VK_PRESENT_MODE_MAILBOX_KHRA) {
+            if (present_mode == c.VK_PRESENT_MODE_MAILBOX_KHR) {
                 return present_mode;
             }
         }
@@ -457,8 +466,54 @@ pub const VulkanRenderer = struct {
         return c.VK_PRESENT_MODE_FIFO_KHR;
     }
 
+    fn chooseSwapExtent(self: *Self, capabilities: c.VkSurfaceCapabilitiesKHR) c.VkExtent2D {
+        if (capabilities.currentExtent.width != std.math.maxInt(u32)) {
+            return capabilities.currentExtent;
+        }
+
+        return c.VkExtent2D{
+            .width = std.math.clamp(self.wlds.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+            .height = std.math.clamp(self.wlds.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
+        };
+    }
+
+    fn createSwapChain(self: *Self) !void {
+        const support = try self.querySwapChainSupport(self.physical_device);
+        const format: c.VkSurfaceFormatKHR = chooseSwapChainSurfaceFormat(support.formats);
+        const present_mode = chooseSwapChainPresentMode(support.present_modes);
+        const extent = self.chooseSwapExtent(support.capabilities);
+        var image_count = support.capabilities.minImageCount + 1;
+
+        if (support.capabilities.maxImageCount > 0 and image_count > support.capabilities.maxImageCount) {
+            image_count = support.capabilities.maxImageCount;
+        }
+
+        const create_info = c.VkSwapchainCreateInfoKHR{
+            .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+            .surface = self.surface,
+            .minImageCount = image_count,
+            .imageFormat = format.format,
+            .imageColorSpace = format.colorSpace,
+            .imageExtent = extent,
+            .imageArrayLayers = 1,
+            .imageUsage = c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            .preTransform = support.capabilities.currentTransform,
+            .compositeAlpha = c.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+            .presentMode = present_mode,
+            .clipped = c.VK_TRUE,
+        };
+
+        switch (c.vkCreateSwapchainKHR(self.device, &create_info, null, &self.swap_chain)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not create swapchain: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+    }
+
     pub fn init(wlds: *wl.WaylandDisplayServer) !Self {
-        var self = Self{};
+        var self = Self{ .wlds = wlds };
         var enableValidationLayers = false;
 
         var instance_extensions = std.ArrayList([*c]const u8).init(std.heap.c_allocator);
@@ -468,7 +523,7 @@ pub const VulkanRenderer = struct {
             try instance_extensions.append(extension);
         }
 
-        if (builtin.mode == .Debug) {
+        if (comptime builtin.mode == .Debug) {
             if (try validationLayersSupported()) {
                 enableValidationLayers = true;
                 try instance_extensions.append(c.VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -486,16 +541,18 @@ pub const VulkanRenderer = struct {
             debug.registerDebugLogger(&self);
         }
 
-        try self.createSurface(wlds);
+        try self.createSurface();
         try self.pickPhysicalDevice();
         try self.findQueueFamilies();
         try self.createLogicalDevice(instance_extensions);
         self.getQueue();
+        try self.createSwapChain();
 
         return self;
     }
 
     pub fn clean(self: *Self) void {
+        c.vkDestroySwapchainKHR(self.device, self.swap_chain, null);
         c.vkDestroySurfaceKHR(self.instance, self.surface, null);
         c.vkDestroyDevice(self.device, null);
         if (self.debug_messenger_handle != undefined) {

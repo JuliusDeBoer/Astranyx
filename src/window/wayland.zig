@@ -69,6 +69,9 @@ pub const WaylandDisplayServer = struct {
     const Self = @This();
     const logger = l.Logger.init(Self);
 
+    width: u32 = 0,
+    height: u32 = 0,
+
     wl_display: *c.struct_wl_display = undefined,
     wl_compositor: *c.struct_wl_compositor = undefined,
     wl_registry: *c.wl_registry = undefined,
@@ -87,7 +90,6 @@ pub const WaylandDisplayServer = struct {
     ) callconv(.C) void {
         _ = registry;
         _ = data;
-        logger.info("Found registry: interface: {s} version: {} name: {}", .{ interface, version, name });
 
         const interface_string = std.mem.span(@as([*:0]const u8, @ptrCast(interface)));
         const item = RegistryItem{ .name = name, .interface = interface_string, .version = version };
@@ -112,7 +114,10 @@ pub const WaylandDisplayServer = struct {
     }
 
     pub fn init(args: WaylandDisplayServerArgs) !Self {
-        var self = Self{ .wl_compositor = undefined, .wl_display = undefined };
+        var self = Self{
+            .width = @intCast(args.width),
+            .height = @intCast(args.height),
+        };
         const display = c.wl_display_connect(null);
 
         {
