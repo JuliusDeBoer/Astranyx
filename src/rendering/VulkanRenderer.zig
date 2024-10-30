@@ -56,7 +56,8 @@ pub const VulkanRenderer = struct {
     surface: c.VkSurfaceKHR = undefined,
 
     swap_chain: c.VkSwapchainKHR = undefined,
-    swap_chain_images: []c.VkImage = undefined,
+    swap_chain_images: std.ArrayList(c.VkImage) = undefined,
+    swap_chain_image_views: std.ArrayList(c.VkImageView) = undefined,
     swap_chain_image_format: c.VkSurfaceFormatKHR = undefined,
     swap_chain_extent: c.VkExtent2D = undefined,
 
@@ -524,9 +525,9 @@ pub const VulkanRenderer = struct {
             },
         }
 
-        self.swap_chain_images = try std.heap.c_allocator.alloc(c.VkImage, image_count);
+        try self.swap_chain_images.resize(image_count);
 
-        switch (c.vkGetSwapchainImagesKHR(self.device, self.swap_chain, &image_count, self.swap_chain_images.ptr)) {
+        switch (c.vkGetSwapchainImagesKHR(self.device, self.swap_chain, &image_count, self.swap_chain_images.items.ptr)) {
             c.VK_SUCCESS => {},
             else => |e| {
                 logger.err("Could not get swapchain images: {s}", .{util.errorToString(e)});
@@ -538,9 +539,49 @@ pub const VulkanRenderer = struct {
         self.swap_chain_extent = extent;
     }
 
+    fn createImageViews(self: *Self) !void {
+        try self.swap_chain_image_views.resize(self.swap_chain_images.items.len);
+
+        var i: u32 = 0;
+        for (self.swap_chain_images.items) |image| {
+            const create_info = c.VkImageViewCreateInfo{
+                .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .image = image,
+                .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
+                .format = self.swap_chain_image_format.format,
+                .components = .{
+                    .r = c.VK_COMPONENT_SWIZZLE_IDENTITY,
+                    .g = c.VK_COMPONENT_SWIZZLE_IDENTITY,
+                    .b = c.VK_COMPONENT_SWIZZLE_IDENTITY,
+                    .a = c.VK_COMPONENT_SWIZZLE_IDENTITY,
+                },
+                .subresourceRange = .{
+                    .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+            };
+
+            switch (c.vkCreateImageView(self.device, &create_info, null, &self.swap_chain_image_views.items[i])) {
+                c.VK_SUCCESS => {},
+                else => |e| {
+                    logger.err("Could not create image view: {s}", .{util.errorToString(e)});
+                    return error.VulkanError;
+                },
+            }
+
+            i += 1;
+        }
+    }
+
     pub fn init(wlds: *wl.WaylandDisplayServer) !Self {
         var self = Self{ .wlds = wlds };
         var enableValidationLayers = false;
+
+        self.swap_chain_images = std.ArrayList(c.VkImage).init(std.heap.c_allocator);
+        self.swap_chain_image_views = std.ArrayList(c.VkImageView).init(std.heap.c_allocator);
 
         var instance_extensions = std.ArrayList([*c]const u8).init(std.heap.c_allocator);
         defer instance_extensions.deinit();
@@ -573,11 +614,15 @@ pub const VulkanRenderer = struct {
         try self.createLogicalDevice(instance_extensions);
         self.getQueue();
         try self.createSwapChain();
+        try self.createImageViews();
 
         return self;
     }
 
     pub fn clean(self: *Self) void {
+        for (self.swap_chain_image_views.items) |view| {
+            c.vkDestroyImageView(self.device, view, null);
+        }
         c.vkDestroySwapchainKHR(self.device, self.swap_chain, null);
         c.vkDestroySurfaceKHR(self.instance, self.surface, null);
         c.vkDestroyDevice(self.device, null);
@@ -588,6 +633,10 @@ pub const VulkanRenderer = struct {
             }
         }
         c.vkDestroyInstance(self.instance, null);
+
+        self.swap_chain_images.deinit();
+        self.swap_chain_image_views.deinit();
+
         logger.info("Cleaned up", .{});
     }
 };
