@@ -14,14 +14,15 @@
     };
   in {
     devShell.x86_64-linux = pkgs.mkShell {
-      buildInputs = [
-        pkgs.zig
-        pkgs.zls
-        pkgs.gdb
-        pkgs.wayland
-        pkgs.vulkan-loader
-        pkgs.vulkan-headers
-        pkgs.vulkan-validation-layers
+      buildInputs = with pkgs; [
+        gdb
+        shaderc
+        vulkan-headers
+        vulkan-loader
+        vulkan-validation-layers
+        wayland
+        zig
+        zls
       ];
       shellHook = ''
         export VK_LAYER_PATH="${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";

@@ -13,13 +13,40 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkLibC();
-    // TODO: Just grab the entire directory instead of manualy setting
-    // specifying the file.
+
     exe.addCSourceFile(.{ .file = b.path("c/xdg-shell-protocol.c"), .flags = &.{} });
     exe.addIncludePath(.{ .src_path = .{ .sub_path = "c", .owner = b } });
 
     exe.linkSystemLibrary2("wayland-client", .{ .preferred_link_mode = .static });
     exe.linkSystemLibrary2("vulkan", .{ .preferred_link_mode = .static });
+
+    const shaders = b.step("shaders", "Compile shaders");
+
+    const shader_output_dir = "zig-out/bin/shaders";
+    std.fs.cwd().makePath(shader_output_dir) catch {};
+
+    // Get list of shader files
+    var shader_dir = std.fs.cwd().openDir("shaders", .{ .iterate = true }) catch @panic("Failed to open shaders directory");
+    defer shader_dir.close();
+
+    var it = shader_dir.iterate();
+    while (it.next() catch @panic("Failed to iterate shader directory")) |entry| {
+        if (entry.kind != .file) continue;
+
+        const shader_path = b.fmt("shaders/{s}", .{entry.name});
+        const output_path = b.fmt("{s}/{s}.spv", .{ shader_output_dir, entry.name });
+
+        const compile_step = b.addSystemCommand(&.{
+            "glslc",
+            shader_path,
+            "-o",
+            output_path,
+        });
+
+        shaders.dependOn(&compile_step.step);
+    }
+
+    exe.step.dependOn(shaders);
 
     b.installArtifact(exe);
 
