@@ -63,6 +63,8 @@ pub const VulkanRenderer = struct {
 
     debug_messenger_handle: c.VkDebugUtilsMessengerEXT = undefined,
 
+    shaders: std.AutoHashMap(usize, c.VkShaderModule) = undefined,
+
     fn createInstance(self: *Self, settings: InstanceSettings) !void {
         // TODO(Julius): Tweak these versions
         const app_info = c.VkApplicationInfo{
@@ -576,12 +578,40 @@ pub const VulkanRenderer = struct {
         }
     }
 
+    /// Load in them shader
+    fn loadThemShader(self: *Self, path: []const u8) !usize {
+        logger.info("Loading shader: {s}", .{path});
+        const code = try util.openRelativeFile(path);
+
+        const create_info = c.VkShaderModuleCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .codeSize = @intCast(code.len),
+            .pCode = @alignCast(@ptrCast(code.ptr)),
+        };
+
+        var module: c.VkShaderModule = undefined;
+
+        switch (c.vkCreateShaderModule(self.device, &create_info, null, &module)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not create shader module: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        const id = util.getUniqueId(self.shaders.keyIterator().items, self.shaders.keyIterator().len);
+        try self.shaders.put(id, module);
+
+        return id;
+    }
+
     pub fn init(wlds: *wl.WaylandDisplayServer) !Self {
         var self = Self{ .wlds = wlds };
         var enableValidationLayers = false;
 
         self.swap_chain_images = std.ArrayList(c.VkImage).init(std.heap.c_allocator);
         self.swap_chain_image_views = std.ArrayList(c.VkImageView).init(std.heap.c_allocator);
+        self.shaders = std.AutoHashMap(usize, c.VkShaderModule).init(std.heap.c_allocator);
 
         var instance_extensions = std.ArrayList([*c]const u8).init(std.heap.c_allocator);
         defer instance_extensions.deinit();
@@ -616,10 +646,21 @@ pub const VulkanRenderer = struct {
         try self.createSwapChain();
         try self.createImageViews();
 
+        // TODO(Julius): Figure out where to load the shaders.
+        const frag = try self.loadThemShader("shaders/basic.frag.spv");
+        const vert = try self.loadThemShader("shaders/basic.vert.spv");
+        _ = frag;
+        _ = vert;
+
         return self;
     }
 
     pub fn clean(self: *Self) void {
+        var shaders = self.shaders.iterator();
+        while (shaders.next()) |shader| {
+            c.vkDestroyShaderModule(self.device, shader.value_ptr.*, null);
+        }
+
         for (self.swap_chain_image_views.items) |view| {
             c.vkDestroyImageView(self.device, view, null);
         }
