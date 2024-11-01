@@ -18,6 +18,7 @@ Does it?
 - [ ] Vulkan rendering
   - [ ] Look into the "2" version of some api stuff
 - [ ] ECS
+  - [ ] Allocate 256TB of memory
 - [ ] Asset loading
   - [ ] Hot reloading
 - [ ] Sound system
