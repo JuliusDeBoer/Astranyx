@@ -64,6 +64,11 @@ pub const VulkanRenderer = struct {
     debug_messenger_handle: c.VkDebugUtilsMessengerEXT = undefined,
 
     shaders: std.AutoHashMap(usize, c.VkShaderModule) = undefined,
+    shader_stages: std.ArrayList(c.VkPipelineShaderStageCreateInfo) = undefined,
+    vert_shader: usize = undefined,
+    frag_shader: usize = undefined,
+
+    pipeline_layout: c.VkPipelineLayout = undefined,
 
     fn createInstance(self: *Self, settings: InstanceSettings) !void {
         // TODO(Julius): Tweak these versions
@@ -605,6 +610,136 @@ pub const VulkanRenderer = struct {
         return id;
     }
 
+    fn createShaderStage(self: *Self) !void {
+        const vert = self.shaders.get(self.vert_shader);
+        if (vert == null) {
+            logger.err("Missing vertex shader?", .{});
+            return error.VulkanError;
+        }
+        const vert_create_info = c.VkPipelineShaderStageCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
+            .module = vert.?,
+            .pName = "basic",
+        };
+        try self.shader_stages.append(vert_create_info);
+
+        const frag = self.shaders.get(self.vert_shader);
+        if (frag == null) {
+            logger.err("Missing fragment shader?", .{});
+            return error.VulkanError;
+        }
+        const frag_create_info = c.VkPipelineShaderStageCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+            .module = frag.?,
+            .pName = "basic",
+        };
+        try self.shader_stages.append(frag_create_info);
+    }
+
+    fn loadState(self: *Self) !void {
+        const viewport = c.VkViewport{
+            .x = 0,
+            .y = 0,
+            .width = @floatFromInt(self.swap_chain_extent.width),
+            .height = @floatFromInt(self.swap_chain_extent.height),
+            .minDepth = 0,
+            .maxDepth = 1,
+        };
+
+        const scissor = c.VkRect2D{
+            .offset = .{
+                .x = 0,
+                .y = 0,
+            },
+            .extent = self.swap_chain_extent,
+        };
+
+        const dynamic_states = [_]c.VkDynamicState{
+            c.VK_DYNAMIC_STATE_VIEWPORT,
+            c.VK_DYNAMIC_STATE_SCISSOR,
+        };
+
+        const dynamic_state = c.VkPipelineDynamicStateCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+            .dynamicStateCount = dynamic_states.len,
+            .pDynamicStates = &dynamic_states,
+        };
+
+        const viewport_state = c.VkPipelineViewportStateCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+            .viewportCount = 1,
+            .pViewports = &viewport,
+            .scissorCount = 1,
+            .pScissors = &scissor,
+        };
+
+        const vertex_input_info = c.VkPipelineVertexInputStateCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+            .vertexBindingDescriptionCount = 0,
+            .vertexAttributeDescriptionCount = 0,
+        };
+
+        const input_assembly = c.VkPipelineInputAssemblyStateCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+            .topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+            .primitiveRestartEnable = c.VK_TRUE,
+        };
+
+        const rasterizer = c.VkPipelineRasterizationStateCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+            .depthClampEnable = c.VK_FALSE,
+            .rasterizerDiscardEnable = c.VK_FALSE,
+            .polygonMode = c.VK_POLYGON_MODE_FILL,
+            .lineWidth = 1,
+            .cullMode = c.VK_CULL_MODE_BACK_BIT,
+            .frontFace = c.VK_FRONT_FACE_CLOCKWISE,
+            .depthBiasEnable = c.VK_FALSE,
+        };
+
+        const mutlisampling = c.VkPipelineMultisampleStateCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+            .sampleShadingEnable = c.VK_FALSE,
+            .rasterizationSamples = c.VK_SAMPLE_COUNT_1_BIT,
+        };
+
+        const color_blend_attachment = c.VkPipelineColorBlendAttachmentState{
+            .colorWriteMask = c.VK_COLOR_COMPONENT_R_BIT |
+                c.VK_COLOR_COMPONENT_G_BIT |
+                c.VK_COLOR_COMPONENT_B_BIT |
+                c.VK_COLOR_COMPONENT_A_BIT,
+            .blendEnable = c.VK_FALSE,
+        };
+
+        const color_blending = c.VkPipelineColorBlendStateCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+            .logicOpEnable = c.VK_TRUE,
+            .attachmentCount = 1,
+            .pAttachments = &color_blend_attachment,
+        };
+
+        const pipeline_layout_info = c.VkPipelineLayoutCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        };
+
+        _ = dynamic_state;
+        _ = viewport_state;
+        _ = vertex_input_info;
+        _ = input_assembly;
+        _ = rasterizer;
+        _ = mutlisampling;
+        _ = color_blending;
+
+        switch (c.vkCreatePipelineLayout(self.device, &pipeline_layout_info, null, &self.pipeline_layout)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not create pipeline layout: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+    }
+
     pub fn init(wlds: *wl.WaylandDisplayServer) !Self {
         var self = Self{ .wlds = wlds };
         var enableValidationLayers = false;
@@ -612,6 +747,7 @@ pub const VulkanRenderer = struct {
         self.swap_chain_images = std.ArrayList(c.VkImage).init(std.heap.c_allocator);
         self.swap_chain_image_views = std.ArrayList(c.VkImageView).init(std.heap.c_allocator);
         self.shaders = std.AutoHashMap(usize, c.VkShaderModule).init(std.heap.c_allocator);
+        self.shader_stages = std.ArrayList(c.VkPipelineShaderStageCreateInfo).init(std.heap.c_allocator);
 
         var instance_extensions = std.ArrayList([*c]const u8).init(std.heap.c_allocator);
         defer instance_extensions.deinit();
@@ -645,17 +781,20 @@ pub const VulkanRenderer = struct {
         self.getQueue();
         try self.createSwapChain();
         try self.createImageViews();
+        try self.loadState();
 
         // TODO(Julius): Figure out where to load the shaders.
-        const frag = try self.loadThemShader("shaders/basic.frag.spv");
-        const vert = try self.loadThemShader("shaders/basic.vert.spv");
-        _ = frag;
-        _ = vert;
+        self.vert_shader = try self.loadThemShader("shaders/basic.vert.spv");
+        self.frag_shader = try self.loadThemShader("shaders/basic.frag.spv");
+
+        try self.createShaderStage();
 
         return self;
     }
 
     pub fn clean(self: *Self) void {
+        c.vkDestroyPipelineLayout(self.device, self.pipeline_layout, null);
+
         var shaders = self.shaders.iterator();
         while (shaders.next()) |shader| {
             c.vkDestroyShaderModule(self.device, shader.value_ptr.*, null);
