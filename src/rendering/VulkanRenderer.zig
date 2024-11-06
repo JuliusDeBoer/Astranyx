@@ -72,6 +72,12 @@ pub const VulkanRenderer = struct {
     pipeline_layout: c.VkPipelineLayout = undefined,
     render_pass: c.VkRenderPass = undefined,
     graphics_pipeline: c.VkPipeline = undefined,
+    command_pool: c.VkCommandPool = undefined,
+    command_buffer: c.VkCommandBuffer = undefined,
+
+    image_available_semaphore: c.VkSemaphore = undefined,
+    render_finished_semaphore: c.VkSemaphore = undefined,
+    in_flight_fence: c.VkFence = undefined,
 
     fn createInstance(self: *Self, settings: InstanceSettings) !void {
         // TODO(Julius): Tweak these versions
@@ -658,6 +664,15 @@ pub const VulkanRenderer = struct {
             .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         };
 
+        const dependency = c.VkSubpassDependency{
+            .srcSubpass = c.VK_SUBPASS_EXTERNAL,
+            .dstSubpass = 0,
+            .srcStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .srcAccessMask = 0,
+            .dstStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        };
+
         const subpass = c.VkSubpassDescription{
             .pipelineBindPoint = c.VK_PIPELINE_BIND_POINT_GRAPHICS,
             .colorAttachmentCount = 1,
@@ -670,6 +685,8 @@ pub const VulkanRenderer = struct {
             .pAttachments = &colout_attachment,
             .subpassCount = 1,
             .pSubpasses = &subpass,
+            .dependencyCount = 1,
+            .pDependencies = &dependency,
         };
 
         switch (c.vkCreateRenderPass(self.device, &render_pass_info, null, &self.render_pass)) {
@@ -828,6 +845,73 @@ pub const VulkanRenderer = struct {
         }
     }
 
+    fn createCommandPool(self: *Self) !void {
+        const pool_info = c.VkCommandPoolCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .flags = c.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+            .queueFamilyIndex = self.queue_family.graphics_family,
+        };
+
+        switch (c.vkCreateCommandPool(self.device, &pool_info, null, &self.command_pool)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not create command pool: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+    }
+
+    fn createCommandBuffer(self: *Self) !void {
+        const alloc_info = c.VkCommandBufferAllocateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool = self.command_pool,
+            .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+        };
+
+        switch (c.vkAllocateCommandBuffers(self.device, &alloc_info, &self.command_buffer)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not allocate command buffer: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+    }
+
+    fn createSyncObjects(self: *Self) !void {
+        const semaphore_info = c.VkSemaphoreCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        };
+        const fence_info = c.VkFenceCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .flags = c.VK_FENCE_CREATE_SIGNALED_BIT,
+        };
+
+        switch (c.vkCreateSemaphore(self.device, &semaphore_info, null, &self.image_available_semaphore)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not create semaphore: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        switch (c.vkCreateSemaphore(self.device, &semaphore_info, null, &self.render_finished_semaphore)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not create semaphore: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        switch (c.vkCreateFence(self.device, &fence_info, null, &self.in_flight_fence)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not create fence: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+    }
+
     pub fn init(wlds: *wl.WaylandDisplayServer) !Self {
         var self = Self{ .wlds = wlds };
         var enableValidationLayers = false;
@@ -878,13 +962,22 @@ pub const VulkanRenderer = struct {
         try self.createShaderStage();
         try self.createRenderPass();
         try self.loadState();
-
         try self.createFramebuffers();
+        try self.createCommandPool();
+        try self.createCommandBuffer();
+
+        try self.createSyncObjects();
 
         return self;
     }
 
     pub fn clean(self: *Self) void {
+        c.vkDestroySemaphore(self.device, self.image_available_semaphore, null);
+        c.vkDestroySemaphore(self.device, self.render_finished_semaphore, null);
+        c.vkDestroyFence(self.device, self.in_flight_fence, null);
+
+        c.vkDestroyCommandPool(self.device, self.command_pool, null);
+
         for (self.swap_chain_framebuffers.items) |framebuffer| {
             c.vkDestroyFramebuffer(self.device, framebuffer, null);
         }
@@ -921,5 +1014,107 @@ pub const VulkanRenderer = struct {
         self.swap_chain_framebuffers.deinit();
 
         logger.info("Cleaned up", .{});
+    }
+
+    fn recordCommandBuffer(self: *Self, command_buffer: c.VkCommandBuffer, image_index: u32) !void {
+        const begin_info = c.VkCommandBufferBeginInfo{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        };
+
+        switch (c.vkBeginCommandBuffer(command_buffer, &begin_info)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Failed to begin recoding the command buffer: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        const clear_color = c.VkClearValue{ .color = .{ .float32 = .{ 0, 0, 0, 1 } } };
+        const render_pass_info = c.VkRenderPassBeginInfo{
+            .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .renderPass = self.render_pass,
+            .framebuffer = self.swap_chain_framebuffers.items[image_index],
+            .renderArea = .{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = self.swap_chain_extent,
+            },
+            .clearValueCount = 1,
+            .pClearValues = &clear_color,
+        };
+
+        const viewport = c.VkViewport{
+            .x = 0,
+            .y = 0,
+            .width = @floatFromInt(self.swap_chain_extent.width),
+            .height = @floatFromInt(self.swap_chain_extent.height),
+            .minDepth = 0,
+            .maxDepth = 1,
+        };
+        const scissor = c.VkRect2D{
+            .offset = .{ .x = 0, .y = 0 },
+            .extent = self.swap_chain_extent,
+        };
+
+        c.vkCmdBeginRenderPass(command_buffer, &render_pass_info, c.VK_SUBPASS_CONTENTS_INLINE);
+        c.vkCmdBindPipeline(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline);
+        c.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+        c.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+        c.vkCmdDraw(command_buffer, 3, 1, 0, 0);
+        c.vkCmdEndRenderPass(command_buffer);
+
+        switch (c.vkEndCommandBuffer(command_buffer)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Failed to record command buffer: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+    }
+
+    pub fn draw(self: *Self) !void {
+        _ = c.vkWaitForFences(self.device, 1, &self.in_flight_fence, c.VK_TRUE, std.math.maxInt(u32));
+        _ = c.vkResetFences(self.device, 1, &self.in_flight_fence);
+
+        var image_index: u32 = undefined;
+        _ = c.vkAcquireNextImageKHR(self.device, self.swap_chain, std.math.maxInt(u32), self.image_available_semaphore, null, &image_index);
+
+        _ = c.vkResetCommandBuffer(self.command_buffer, 0);
+        try self.recordCommandBuffer(self.command_buffer, image_index);
+
+        const wait_semaphores = [_]c.VkSemaphore{self.image_available_semaphore};
+        const signal_semaphores = [_]c.VkSemaphore{self.render_finished_semaphore};
+        const wait_stages = [_]c.VkPipelineStageFlags{c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+
+        const submit_info = c.VkSubmitInfo{
+            .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &wait_semaphores,
+            .pWaitDstStageMask = &wait_stages,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &self.command_buffer,
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores = &signal_semaphores,
+        };
+
+        switch (c.vkQueueSubmit(self.queue, 1, &submit_info, self.in_flight_fence)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Failed to submit draw command buffer: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        const swap_chains = [_]c.VkSwapchainKHR{self.swap_chain};
+
+        const present_info = c.VkPresentInfoKHR{
+            .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .waitSemaphoreCount = signal_semaphores.len,
+            .pWaitSemaphores = &signal_semaphores,
+            .swapchainCount = swap_chains.len,
+            .pSwapchains = &swap_chains,
+            .pImageIndices = &image_index,
+        };
+
+        _ = c.vkQueuePresentKHR(self.present_queue, &present_info);
     }
 };

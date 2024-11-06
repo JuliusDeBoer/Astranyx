@@ -58,7 +58,9 @@ pub fn main() !void {
     };
 
     logger.info("Starting event loop", .{});
-    while (state.displayServer.dispatch()) {}
+    while (state.displayServer.dispatch()) {
+        try state.renderer.draw();
+    }
 
     state.clean();
 }
