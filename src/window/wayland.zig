@@ -3,7 +3,7 @@ const c = @cImport({
     @cInclude("wayland-client.h");
     @cInclude("xdg-shell-protocol.h");
 });
-const l = @import("../logging.zig");
+const logger = @import("../logging.zig").Logger.init(@This());
 
 fn randName(random: std.rand.Random) [7]u8 {
     var out: [7]u8 = undefined;
@@ -67,7 +67,6 @@ const WaylandDisplayServerArgs = struct { name: []const u8, width: i32, height: 
 /// Easily create a wayland window
 pub const WaylandDisplayServer = struct {
     const Self = @This();
-    const logger = l.Logger.init(Self);
 
     width: u32 = 0,
     height: u32 = 0,

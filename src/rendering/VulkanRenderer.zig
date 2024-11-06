@@ -69,6 +69,7 @@ pub const VulkanRenderer = struct {
     frag_shader: usize = undefined,
 
     pipeline_layout: c.VkPipelineLayout = undefined,
+    render_pass: c.VkRenderPass = undefined,
 
     fn createInstance(self: *Self, settings: InstanceSettings) !void {
         // TODO(Julius): Tweak these versions
@@ -638,6 +639,46 @@ pub const VulkanRenderer = struct {
         try self.shader_stages.append(frag_create_info);
     }
 
+    fn createRenderPass(self: *Self) !void {
+        const colout_attachment = c.VkAttachmentDescription{
+            .format = self.swap_chain_image_format.format,
+            .samples = c.VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        };
+
+        const colour_attachment_ref = c.VkAttachmentReference{
+            .attachment = 0,
+            .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        };
+
+        const subpass = c.VkSubpassDescription{
+            .pipelineBindPoint = c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &colour_attachment_ref,
+        };
+
+        const render_pass_info = c.VkRenderPassCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+            .attachmentCount = 1,
+            .pAttachments = &colout_attachment,
+            .subpassCount = 1,
+            .pSubpasses = &subpass,
+        };
+
+        switch (c.vkCreateRenderPass(self.device, &render_pass_info, null, &self.render_pass)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not create render pass: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+    }
+
     fn loadState(self: *Self) !void {
         const viewport = c.VkViewport{
             .x = 0,
@@ -787,6 +828,7 @@ pub const VulkanRenderer = struct {
         self.vert_shader = try self.loadThemShader("shaders/basic.vert.spv");
         self.frag_shader = try self.loadThemShader("shaders/basic.frag.spv");
 
+        try self.createRenderPass();
         try self.createShaderStage();
 
         return self;
@@ -794,6 +836,7 @@ pub const VulkanRenderer = struct {
 
     pub fn clean(self: *Self) void {
         c.vkDestroyPipelineLayout(self.device, self.pipeline_layout, null);
+        c.vkDestroyRenderPass(self.device, self.render_pass, null);
 
         var shaders = self.shaders.iterator();
         while (shaders.next()) |shader| {
