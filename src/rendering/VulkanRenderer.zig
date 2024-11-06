@@ -70,6 +70,7 @@ pub const VulkanRenderer = struct {
 
     pipeline_layout: c.VkPipelineLayout = undefined,
     render_pass: c.VkRenderPass = undefined,
+    graphics_pipeline: c.VkPipeline = undefined,
 
     fn createInstance(self: *Self, settings: InstanceSettings) !void {
         // TODO(Julius): Tweak these versions
@@ -621,11 +622,11 @@ pub const VulkanRenderer = struct {
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
             .module = vert.?,
-            .pName = "basic",
+            .pName = "main",
         };
         try self.shader_stages.append(vert_create_info);
 
-        const frag = self.shaders.get(self.vert_shader);
+        const frag = self.shaders.get(self.frag_shader);
         if (frag == null) {
             logger.err("Missing fragment shader?", .{});
             return error.VulkanError;
@@ -634,7 +635,7 @@ pub const VulkanRenderer = struct {
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT,
             .module = frag.?,
-            .pName = "basic",
+            .pName = "main",
         };
         try self.shader_stages.append(frag_create_info);
     }
@@ -725,7 +726,7 @@ pub const VulkanRenderer = struct {
         const input_assembly = c.VkPipelineInputAssemblyStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
             .topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-            .primitiveRestartEnable = c.VK_TRUE,
+            .primitiveRestartEnable = c.VK_FALSE,
         };
 
         const rasterizer = c.VkPipelineRasterizationStateCreateInfo{
@@ -755,7 +756,7 @@ pub const VulkanRenderer = struct {
 
         const color_blending = c.VkPipelineColorBlendStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .logicOpEnable = c.VK_TRUE,
+            .logicOpEnable = c.VK_FALSE,
             .attachmentCount = 1,
             .pAttachments = &color_blend_attachment,
         };
@@ -764,18 +765,34 @@ pub const VulkanRenderer = struct {
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         };
 
-        _ = dynamic_state;
-        _ = viewport_state;
-        _ = vertex_input_info;
-        _ = input_assembly;
-        _ = rasterizer;
-        _ = mutlisampling;
-        _ = color_blending;
-
         switch (c.vkCreatePipelineLayout(self.device, &pipeline_layout_info, null, &self.pipeline_layout)) {
             c.VK_SUCCESS => {},
             else => |e| {
                 logger.err("Could not create pipeline layout: {s}", .{util.errorToString(e)});
+                return error.VulkanError;
+            },
+        }
+
+        const pipeline_info = c.VkGraphicsPipelineCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+            .stageCount = @intCast(self.shader_stages.items.len),
+            .pStages = self.shader_stages.items.ptr,
+            .pVertexInputState = &vertex_input_info,
+            .pInputAssemblyState = &input_assembly,
+            .pViewportState = &viewport_state,
+            .pRasterizationState = &rasterizer,
+            .pMultisampleState = &mutlisampling,
+            .pColorBlendState = &color_blending,
+            .pDynamicState = &dynamic_state,
+            .layout = self.pipeline_layout,
+            .renderPass = self.render_pass,
+            .subpass = 0,
+        };
+
+        switch (c.vkCreateGraphicsPipelines(self.device, null, 1, &pipeline_info, null, &self.graphics_pipeline)) {
+            c.VK_SUCCESS => {},
+            else => |e| {
+                logger.err("Could not create graphics pipeline: {s}", .{util.errorToString(e)});
                 return error.VulkanError;
             },
         }
@@ -822,19 +839,20 @@ pub const VulkanRenderer = struct {
         self.getQueue();
         try self.createSwapChain();
         try self.createImageViews();
-        try self.loadState();
 
         // TODO(Julius): Figure out where to load the shaders.
         self.vert_shader = try self.loadThemShader("shaders/basic.vert.spv");
         self.frag_shader = try self.loadThemShader("shaders/basic.frag.spv");
 
-        try self.createRenderPass();
         try self.createShaderStage();
+        try self.createRenderPass();
+        try self.loadState();
 
         return self;
     }
 
     pub fn clean(self: *Self) void {
+        c.vkDestroyPipeline(self.device, self.graphics_pipeline, null);
         c.vkDestroyPipelineLayout(self.device, self.pipeline_layout, null);
         c.vkDestroyRenderPass(self.device, self.render_pass, null);
 
