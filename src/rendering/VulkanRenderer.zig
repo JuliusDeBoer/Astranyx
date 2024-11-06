@@ -60,6 +60,7 @@ pub const VulkanRenderer = struct {
     swap_chain_image_views: std.ArrayList(c.VkImageView) = undefined,
     swap_chain_image_format: c.VkSurfaceFormatKHR = undefined,
     swap_chain_extent: c.VkExtent2D = undefined,
+    swap_chain_framebuffers: std.ArrayList(c.VkFramebuffer) = undefined,
 
     debug_messenger_handle: c.VkDebugUtilsMessengerEXT = undefined,
 
@@ -798,6 +799,35 @@ pub const VulkanRenderer = struct {
         }
     }
 
+    fn createFramebuffers(self: *Self) !void {
+        try self.swap_chain_framebuffers.resize(self.swap_chain_image_views.items.len);
+
+        var i: usize = 0;
+        while (i < self.swap_chain_image_views.items.len) {
+            const attachments = [_]c.VkImageView{self.swap_chain_image_views.items[i]};
+
+            const framebuffer_info = c.VkFramebufferCreateInfo{
+                .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                .renderPass = self.render_pass,
+                .attachmentCount = attachments.len,
+                .pAttachments = &attachments,
+                .width = self.swap_chain_extent.width,
+                .height = self.swap_chain_extent.height,
+                .layers = 1,
+            };
+
+            switch (c.vkCreateFramebuffer(self.device, &framebuffer_info, null, &self.swap_chain_framebuffers.items[i])) {
+                c.VK_SUCCESS => {},
+                else => |e| {
+                    logger.err("Could not create framebuffer: {s}", .{util.errorToString(e)});
+                    return error.VulkanError;
+                },
+            }
+
+            i += 1;
+        }
+    }
+
     pub fn init(wlds: *wl.WaylandDisplayServer) !Self {
         var self = Self{ .wlds = wlds };
         var enableValidationLayers = false;
@@ -806,6 +836,7 @@ pub const VulkanRenderer = struct {
         self.swap_chain_image_views = std.ArrayList(c.VkImageView).init(std.heap.c_allocator);
         self.shaders = std.AutoHashMap(usize, c.VkShaderModule).init(std.heap.c_allocator);
         self.shader_stages = std.ArrayList(c.VkPipelineShaderStageCreateInfo).init(std.heap.c_allocator);
+        self.swap_chain_framebuffers = std.ArrayList(c.VkFramebuffer).init(std.heap.c_allocator);
 
         var instance_extensions = std.ArrayList([*c]const u8).init(std.heap.c_allocator);
         defer instance_extensions.deinit();
@@ -848,10 +879,16 @@ pub const VulkanRenderer = struct {
         try self.createRenderPass();
         try self.loadState();
 
+        try self.createFramebuffers();
+
         return self;
     }
 
     pub fn clean(self: *Self) void {
+        for (self.swap_chain_framebuffers.items) |framebuffer| {
+            c.vkDestroyFramebuffer(self.device, framebuffer, null);
+        }
+
         c.vkDestroyPipeline(self.device, self.graphics_pipeline, null);
         c.vkDestroyPipelineLayout(self.device, self.pipeline_layout, null);
         c.vkDestroyRenderPass(self.device, self.render_pass, null);
@@ -877,6 +914,9 @@ pub const VulkanRenderer = struct {
 
         self.swap_chain_images.deinit();
         self.swap_chain_image_views.deinit();
+        self.shaders.deinit();
+        self.shader_stages.deinit();
+        self.swap_chain_framebuffers.deinit();
 
         logger.info("Cleaned up", .{});
     }
