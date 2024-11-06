@@ -4,24 +4,33 @@ const c = @cImport({
 const logger = @import("../logging.zig").Logger.init(@This());
 const std = @import("std");
 
-// There is a function for this called `string_VkResult` inside
+// NOTE(Julius): There is a function for this called `string_VkResult` inside
 // `vulkan/vk_enum_string_helper.h`. But I cant find it. Sooo
 pub fn errorToString(code: c.VkResult) []const u8 {
-    logger.info("Code: {}", .{code});
-    const result = switch (code) {
+    return switch (code) {
         c.VK_SUCCESS => "Success?",
+        c.VK_ERROR_UNKNOWN => "Unknown error",
+
+        c.VK_NOT_READY => "Not Ready",
+        c.VK_TIMEOUT => "Timeout",
+        c.VK_EVENT_SET => "Event Set",
+        c.VK_EVENT_RESET => "Event Reset",
+        c.VK_INCOMPLETE => "Incomplete",
+
         c.VK_ERROR_OUT_OF_HOST_MEMORY => "Out of Host Memory",
         c.VK_ERROR_OUT_OF_DEVICE_MEMORY => "Out of Device Memory",
         c.VK_ERROR_INITIALIZATION_FAILED => "Initialization Failed",
+        c.VK_ERROR_DEVICE_LOST => "Device lost",
+        c.VK_ERROR_MEMORY_MAP_FAILED => "Memory map failed",
         c.VK_ERROR_LAYER_NOT_PRESENT => "Layer Not Present",
         c.VK_ERROR_EXTENSION_NOT_PRESENT => "Extension Not Present",
+        c.VK_ERROR_FEATURE_NOT_PRESENT => "Feature Not Present",
         c.VK_ERROR_INCOMPATIBLE_DRIVER => "Incompatible Driver",
-        c.VK_ERROR_INVALID_SHADER_NV => "Invalid shader",
-        c.VK_ERROR_UNKNOWN => "Unknown error",
+        c.VK_ERROR_TOO_MANY_OBJECTS => "Too Many Objects",
+        c.VK_ERROR_FORMAT_NOT_SUPPORTED => "Format Not Supported",
+        c.VK_ERROR_FRAGMENTED_POOL => "Fragmented Pool",
         else => "Couldnt generate error message",
     };
-
-    return result;
 }
 
 /// Opens a file relative to the exectuable directory

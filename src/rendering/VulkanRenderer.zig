@@ -908,6 +908,8 @@ pub const VulkanRenderer = struct {
             const vkDestroyDebugUtilsMessengerEXT: c.PFN_vkDestroyDebugUtilsMessengerEXT = @ptrCast(c.vkGetInstanceProcAddr(self.instance, "vkDestroyDebugUtilsMessengerEXT"));
             if (vkDestroyDebugUtilsMessengerEXT != null) {
                 vkDestroyDebugUtilsMessengerEXT.?(self.instance, @constCast(self.debug_messenger_handle), null);
+            } else {
+                logger.warn("Could not destroy debug messenger", .{});
             }
         }
         c.vkDestroyInstance(self.instance, null);
