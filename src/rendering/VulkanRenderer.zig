@@ -182,6 +182,8 @@ pub const VulkanRenderer = struct {
         // var features: c.VkPhysicalDeviceFeatures = undefined;
         // c.vkGetPhysicalDeviceFeatures(device.*, &features);
         var properties: c.VkPhysicalDeviceProperties = undefined;
+
+        // NOTE(Julius): Device is null here
         c.vkGetPhysicalDeviceProperties(device.*, &properties);
 
         const extension_support = checkExtensionSupport(device);
@@ -225,7 +227,7 @@ pub const VulkanRenderer = struct {
             },
         }
 
-        var selected_device: c.VkPhysicalDevice = undefined;
+        var selected_device: ?c.VkPhysicalDevice = null;
 
         for (devices) |device| {
             // NOTE(Julius): Maybe score these to pick the best one. But who
@@ -235,17 +237,17 @@ pub const VulkanRenderer = struct {
             }
         }
 
-        if (selected_device == undefined) {
+        if (selected_device == null) {
             logger.err("Could not get suitable device", .{});
             return error.VulkanError;
         }
 
         var properties: c.VkPhysicalDeviceProperties = undefined;
-        c.vkGetPhysicalDeviceProperties(selected_device, &properties);
+        c.vkGetPhysicalDeviceProperties(selected_device.?, &properties);
 
         logger.info("Chosen a suitable GPU: {s}", .{properties.deviceName});
 
-        self.physical_device = selected_device;
+        self.physical_device = selected_device.?;
     }
 
     fn findQueueFamilies(self: *Self) !void {
@@ -947,23 +949,36 @@ pub const VulkanRenderer = struct {
             debug.registerDebugLogger(&self);
         }
 
+        logger.info("Creating surface", .{});
         try self.createSurface();
+        logger.info("Getting physical device", .{});
         try self.pickPhysicalDevice();
+        logger.info("Getting queue families", .{});
         try self.findQueueFamilies();
+        logger.info("Creating logical device", .{});
         try self.createLogicalDevice(instance_extensions);
         self.getQueue();
+        logger.info("Creating swapchain", .{});
         try self.createSwapChain();
+        logger.info("Creating image views", .{});
         try self.createImageViews();
 
+        logger.info("Loading required shaders", .{});
         // TODO(Julius): Figure out where to load the shaders.
         self.vert_shader = try self.loadThemShader("shaders/basic.vert.spv");
         self.frag_shader = try self.loadThemShader("shaders/basic.frag.spv");
 
+        logger.info("Creating shader stage", .{});
         try self.createShaderStage();
+        logger.info("Creating render pass", .{});
         try self.createRenderPass();
+        logger.info("Building pipeline", .{});
         try self.loadState();
+        logger.info("Creating framebuffers", .{});
         try self.createFramebuffers();
+        logger.info("Creating command pool", .{});
         try self.createCommandPool();
+        logger.info("Creating command buffer", .{});
         try self.createCommandBuffer();
 
         try self.createSyncObjects();
