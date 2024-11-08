@@ -186,7 +186,7 @@ pub const VulkanRenderer = struct {
 
         var swap_chain_adequate = false;
         if (extension_support) {
-            const swap_chain_support: SwapChainDetails = self.querySwapChainSupport(device.*) catch return false;
+            const swap_chain_support = self.querySwapChainSupport(device.*) catch return false;
             swap_chain_adequate = swap_chain_support.formats.len > 0 and
                 swap_chain_support.present_modes.len > 0;
         }
@@ -251,18 +251,30 @@ pub const VulkanRenderer = struct {
         c.vkGetPhysicalDeviceQueueFamilyProperties(self.physical_device, &family_count, null);
         const families = try std.heap.c_allocator.alloc(c.VkQueueFamilyProperties, family_count);
         defer std.heap.c_allocator.free(families);
-        c.vkGetPhysicalDeviceQueueFamilyProperties(self.physical_device, &family_count, families.ptr);
+        c.vkGetPhysicalDeviceQueueFamilyProperties(
+            self.physical_device,
+            &family_count,
+            families.ptr,
+        );
 
         var i: u32 = 0;
         var success = false;
         for (families) |family| {
             var present_support: c.VkBool32 = undefined;
-            switch (c.vkGetPhysicalDeviceSurfaceSupportKHR(self.physical_device, i, self.surface, &present_support)) {
+            switch (c.vkGetPhysicalDeviceSurfaceSupportKHR(
+                self.physical_device,
+                i,
+                self.surface,
+                &present_support,
+            )) {
                 c.VK_SUCCESS => {
                     indecies.present_family = i;
                 },
                 else => |e| {
-                    logger.err("Could not get physical device support: {s}", .{util.errorToString(e)});
+                    logger.err(
+                        "Could not get physical device support: {s}",
+                        .{util.errorToString(e)},
+                    );
                     return error.VulkanError;
                 },
             }
@@ -290,14 +302,22 @@ pub const VulkanRenderer = struct {
             "Could not get extension properties",
         ) catch return false;
 
-        const available_extensions = std.heap.c_allocator.alloc(c.VkExtensionProperties, extension_count) catch |e| {
+        const available_extensions = std.heap.c_allocator.alloc(
+            c.VkExtensionProperties,
+            extension_count,
+        ) catch |e| {
             logger.err("Could not allocate memory for array at {}: {}", .{ @This(), e });
             return false;
         };
         defer std.heap.c_allocator.free(available_extensions);
 
         checkVulkanError(
-            c.vkEnumerateDeviceExtensionProperties(device.*, null, &extension_count, available_extensions.ptr),
+            c.vkEnumerateDeviceExtensionProperties(
+                device.*,
+                null,
+                &extension_count,
+                available_extensions.ptr,
+            ),
             "Could not get extension properties",
         ) catch return false;
 
@@ -324,7 +344,11 @@ pub const VulkanRenderer = struct {
         };
 
         try checkVulkanError(
-            c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, self.surface, &details.capabilities),
+            c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+                device,
+                self.surface,
+                &details.capabilities,
+            ),
             "Could not get physical durface capabilities",
         );
 
@@ -342,23 +366,41 @@ pub const VulkanRenderer = struct {
         // defer std.heap.c_allocator.free(details.formats);
 
         try checkVulkanError(
-            c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, self.surface, &format_count, details.formats.ptr),
+            c.vkGetPhysicalDeviceSurfaceFormatsKHR(
+                device,
+                self.surface,
+                &format_count,
+                details.formats.ptr,
+            ),
             "Could not get physical surface formats",
         );
 
         var present_mode_count: u32 = undefined;
 
         try checkVulkanError(
-            c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, self.surface, &present_mode_count, null),
+            c.vkGetPhysicalDeviceSurfacePresentModesKHR(
+                device,
+                self.surface,
+                &present_mode_count,
+                null,
+            ),
             "Could not get physical surface present modes",
         );
 
-        details.present_modes = try std.heap.c_allocator.alloc(c.VkPresentModeKHR, present_mode_count);
+        details.present_modes = try std.heap.c_allocator.alloc(
+            c.VkPresentModeKHR,
+            present_mode_count,
+        );
         // HACK(Julius): Same thing here
         // defer std.heap.c_allocator.free(details.present_modes);
 
         try checkVulkanError(
-            c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, self.surface, &present_mode_count, details.present_modes.ptr),
+            c.vkGetPhysicalDeviceSurfacePresentModesKHR(
+                device,
+                self.surface,
+                &present_mode_count,
+                details.present_modes.ptr,
+            ),
             "Could not get physical surface present modes",
         );
 
@@ -372,7 +414,10 @@ pub const VulkanRenderer = struct {
         try unique_indices.put(self.queue_family.graphics_family, {});
         try unique_indices.put(self.queue_family.present_family, {});
 
-        var queue_create_infos = try std.heap.c_allocator.alloc(c.VkDeviceQueueCreateInfo, unique_indices.count());
+        var queue_create_infos = try std.heap.c_allocator.alloc(
+            c.VkDeviceQueueCreateInfo,
+            unique_indices.count(),
+        );
         defer std.heap.c_allocator.free(queue_create_infos);
 
         var i: usize = 0;
@@ -464,8 +509,16 @@ pub const VulkanRenderer = struct {
         }
 
         return c.VkExtent2D{
-            .width = std.math.clamp(self.wlds.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
-            .height = std.math.clamp(self.wlds.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
+            .width = std.math.clamp(
+                self.wlds.width,
+                capabilities.minImageExtent.width,
+                capabilities.maxImageExtent.width,
+            ),
+            .height = std.math.clamp(
+                self.wlds.height,
+                capabilities.minImageExtent.height,
+                capabilities.maxImageExtent.height,
+            ),
         };
     }
 
@@ -476,7 +529,9 @@ pub const VulkanRenderer = struct {
         const extent = self.chooseSwapExtent(support.capabilities);
         var image_count = support.capabilities.minImageCount + 1;
 
-        if (support.capabilities.maxImageCount > 0 and image_count > support.capabilities.maxImageCount) {
+        if (support.capabilities.maxImageCount > 0 and
+            image_count > support.capabilities.maxImageCount)
+        {
             image_count = support.capabilities.maxImageCount;
         }
 
@@ -507,13 +562,15 @@ pub const VulkanRenderer = struct {
 
         try self.swap_chain_images.resize(image_count);
 
-        switch (c.vkGetSwapchainImagesKHR(self.device, self.swap_chain, &image_count, self.swap_chain_images.items.ptr)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not get swapchain images: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkGetSwapchainImagesKHR(
+                self.device,
+                self.swap_chain,
+                &image_count,
+                self.swap_chain_images.items.ptr,
+            ),
+            "Could not get swapchain images",
+        );
 
         self.swap_chain_image_format = format;
         self.swap_chain_extent = extent;
@@ -545,7 +602,12 @@ pub const VulkanRenderer = struct {
             };
 
             try checkVulkanError(
-                c.vkCreateImageView(self.device, &create_info, null, &self.swap_chain_image_views.items[i]),
+                c.vkCreateImageView(
+                    self.device,
+                    &create_info,
+                    null,
+                    &self.swap_chain_image_views.items[i],
+                ),
                 "Could not create image view",
             );
 
@@ -571,7 +633,10 @@ pub const VulkanRenderer = struct {
             "Could not create shader module",
         );
 
-        const id = util.getUniqueId(self.shaders.keyIterator().items, self.shaders.keyIterator().len);
+        const id = util.getUniqueId(
+            self.shaders.keyIterator().items,
+            self.shaders.keyIterator().len,
+        );
         try self.shaders.put(id, module);
 
         return id;
@@ -739,7 +804,12 @@ pub const VulkanRenderer = struct {
         };
 
         try checkVulkanError(
-            c.vkCreatePipelineLayout(self.device, &pipeline_layout_info, null, &self.pipeline_layout),
+            c.vkCreatePipelineLayout(
+                self.device,
+                &pipeline_layout_info,
+                null,
+                &self.pipeline_layout,
+            ),
             "Could not create pipeline layout",
         );
 
@@ -760,7 +830,14 @@ pub const VulkanRenderer = struct {
         };
 
         try checkVulkanError(
-            c.vkCreateGraphicsPipelines(self.device, null, 1, &pipeline_info, null, &self.graphics_pipeline),
+            c.vkCreateGraphicsPipelines(
+                self.device,
+                null,
+                1,
+                &pipeline_info,
+                null,
+                &self.graphics_pipeline,
+            ),
             "Could not create graphics pipeline",
         );
     }
@@ -783,7 +860,12 @@ pub const VulkanRenderer = struct {
             };
 
             try checkVulkanError(
-                c.vkCreateFramebuffer(self.device, &framebuffer_info, null, &self.swap_chain_framebuffers.items[i]),
+                c.vkCreateFramebuffer(
+                    self.device,
+                    &framebuffer_info,
+                    null,
+                    &self.swap_chain_framebuffers.items[i],
+                ),
                 "Could not create framebuffer",
             );
 
@@ -828,11 +910,21 @@ pub const VulkanRenderer = struct {
         };
 
         try checkVulkanError(
-            c.vkCreateSemaphore(self.device, &semaphore_info, null, &self.image_available_semaphore),
+            c.vkCreateSemaphore(
+                self.device,
+                &semaphore_info,
+                null,
+                &self.image_available_semaphore,
+            ),
             "Could not create semaphore",
         );
         try checkVulkanError(
-            c.vkCreateSemaphore(self.device, &semaphore_info, null, &self.render_finished_semaphore),
+            c.vkCreateSemaphore(
+                self.device,
+                &semaphore_info,
+                null,
+                &self.render_finished_semaphore,
+            ),
             "Could not create semaphore",
         );
         try checkVulkanError(
@@ -848,7 +940,8 @@ pub const VulkanRenderer = struct {
         self.swap_chain_images = std.ArrayList(c.VkImage).init(std.heap.c_allocator);
         self.swap_chain_image_views = std.ArrayList(c.VkImageView).init(std.heap.c_allocator);
         self.shaders = std.AutoHashMap(usize, c.VkShaderModule).init(std.heap.c_allocator);
-        self.shader_stages = std.ArrayList(c.VkPipelineShaderStageCreateInfo).init(std.heap.c_allocator);
+        self.shader_stages =
+            std.ArrayList(c.VkPipelineShaderStageCreateInfo).init(std.heap.c_allocator);
         self.swap_chain_framebuffers = std.ArrayList(c.VkFramebuffer).init(std.heap.c_allocator);
 
         var instance_extensions = std.ArrayList([*c]const u8).init(std.heap.c_allocator);
@@ -940,9 +1033,17 @@ pub const VulkanRenderer = struct {
         c.vkDestroySurfaceKHR(self.instance, self.surface, null);
         c.vkDestroyDevice(self.device, null);
         if (self.debug_messenger_handle != undefined) {
-            const vkDestroyDebugUtilsMessengerEXT: c.PFN_vkDestroyDebugUtilsMessengerEXT = @ptrCast(c.vkGetInstanceProcAddr(self.instance, "vkDestroyDebugUtilsMessengerEXT"));
+            const vkDestroyDebugUtilsMessengerEXT: c.PFN_vkDestroyDebugUtilsMessengerEXT =
+                @ptrCast(
+                c.vkGetInstanceProcAddr(self.instance, "vkDestroyDebugUtilsMessengerEXT"),
+            );
+
             if (vkDestroyDebugUtilsMessengerEXT != null) {
-                vkDestroyDebugUtilsMessengerEXT.?(self.instance, @constCast(self.debug_messenger_handle), null);
+                vkDestroyDebugUtilsMessengerEXT.?(
+                    self.instance,
+                    @constCast(self.debug_messenger_handle),
+                    null,
+                );
             } else {
                 logger.warn("Could not destroy debug messenger", .{});
             }
@@ -958,7 +1059,11 @@ pub const VulkanRenderer = struct {
         logger.info("Cleaned up", .{});
     }
 
-    fn recordCommandBuffer(self: *Self, command_buffer: c.VkCommandBuffer, image_index: u32) !void {
+    fn recordCommandBuffer(
+        self: *Self,
+        command_buffer: c.VkCommandBuffer,
+        image_index: u32,
+    ) !void {
         const begin_info = c.VkCommandBufferBeginInfo{
             .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         };
@@ -995,7 +1100,11 @@ pub const VulkanRenderer = struct {
         };
 
         c.vkCmdBeginRenderPass(command_buffer, &render_pass_info, c.VK_SUBPASS_CONTENTS_INLINE);
-        c.vkCmdBindPipeline(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline);
+        c.vkCmdBindPipeline(
+            command_buffer,
+            c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            self.graphics_pipeline,
+        );
         c.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
         c.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
         c.vkCmdDraw(command_buffer, 3, 1, 0, 0);
@@ -1012,14 +1121,22 @@ pub const VulkanRenderer = struct {
         _ = c.vkResetFences(self.device, 1, &self.in_flight_fence);
 
         var image_index: u32 = undefined;
-        _ = c.vkAcquireNextImageKHR(self.device, self.swap_chain, std.math.maxInt(u32), self.image_available_semaphore, null, &image_index);
+        _ = c.vkAcquireNextImageKHR(
+            self.device,
+            self.swap_chain,
+            std.math.maxInt(u32),
+            self.image_available_semaphore,
+            null,
+            &image_index,
+        );
 
         _ = c.vkResetCommandBuffer(self.command_buffer, 0);
         try self.recordCommandBuffer(self.command_buffer, image_index);
 
         const wait_semaphores = [_]c.VkSemaphore{self.image_available_semaphore};
         const signal_semaphores = [_]c.VkSemaphore{self.render_finished_semaphore};
-        const wait_stages = [_]c.VkPipelineStageFlags{c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        const wait_stages =
+            [_]c.VkPipelineStageFlags{c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 
         const submit_info = c.VkSubmitInfo{
             .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,

@@ -41,7 +41,10 @@ pub fn registerDebugLogger(self: *vulkan.VulkanRenderer) void {
     };
 
     var vkCreateDebugUtilsMessengerEXT: c.PFN_vkCreateDebugUtilsMessengerEXT = undefined;
-    vkCreateDebugUtilsMessengerEXT = @ptrCast(c.vkGetInstanceProcAddr(@ptrCast(self.instance), "vkCreateDebugUtilsMessengerEXT"));
+    vkCreateDebugUtilsMessengerEXT = @ptrCast(c.vkGetInstanceProcAddr(
+        @ptrCast(self.instance),
+        "vkCreateDebugUtilsMessengerEXT",
+    ));
 
     if (vkCreateDebugUtilsMessengerEXT == null) {
         logger.warn("Could not find vkCreateDebugUtilsMessengerEXT", .{});

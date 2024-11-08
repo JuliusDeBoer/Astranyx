@@ -20,7 +20,11 @@ fn createShmFile() !c_int {
     const random = prng.random();
 
     while (retries > 0) {
-        const name = try std.fmt.allocPrint(std.heap.page_allocator, "/wl_shm-{s}", .{randName(random)});
+        const name = try std.fmt.allocPrint(
+            std.heap.page_allocator,
+            "/wl_shm-{s}",
+            .{randName(random)},
+        );
         retries -= 1;
         const flags = std.posix.O{
             .ACCMODE = .RDWR,
@@ -91,7 +95,11 @@ pub const WaylandDisplayServer = struct {
         _ = data;
 
         const interface_string = std.mem.span(@as([*:0]const u8, @ptrCast(interface)));
-        const item = RegistryItem{ .name = name, .interface = interface_string, .version = version };
+        const item = RegistryItem{
+            .name = name,
+            .interface = interface_string,
+            .version = version,
+        };
         registryItems[registryItemsCount] = item;
         registryItemsCount += 1;
     }
@@ -143,7 +151,11 @@ pub const WaylandDisplayServer = struct {
         // This will cause a segvault when one or more do not get registered.
         // Time to not think about that.
         for (&registryItems) |item| {
-            if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.wl_compositor_interface.name))))) {
+            if (std.mem.eql(
+                u8,
+                item.interface,
+                std.mem.span(@as([*:0]const u8, @ptrCast(c.wl_compositor_interface.name))),
+            )) {
                 const compositor_ptr = c.wl_registry_bind(
                     self.wl_registry,
                     item.name,
@@ -152,7 +164,11 @@ pub const WaylandDisplayServer = struct {
                 );
                 self.wl_compositor = @ptrCast(@alignCast(compositor_ptr));
                 logger.info("Registered compositor", .{});
-            } else if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.wl_shm_interface.name))))) {
+            } else if (std.mem.eql(
+                u8,
+                item.interface,
+                std.mem.span(@as([*:0]const u8, @ptrCast(c.wl_shm_interface.name))),
+            )) {
                 const shm_ptr = c.wl_registry_bind(
                     self.wl_registry,
                     item.name,
@@ -161,7 +177,11 @@ pub const WaylandDisplayServer = struct {
                 );
                 self.wl_shm = @ptrCast(@alignCast(shm_ptr));
                 logger.info("Registered SHM", .{});
-            } else if (std.mem.eql(u8, item.interface, std.mem.span(@as([*:0]const u8, @ptrCast(c.xdg_wm_base_interface.name))))) {
+            } else if (std.mem.eql(
+                u8,
+                item.interface,
+                std.mem.span(@as([*:0]const u8, @ptrCast(c.xdg_wm_base_interface.name))),
+            )) {
                 const xdg_shell_ptr = c.wl_registry_bind(
                     self.wl_registry,
                     item.name,
@@ -187,13 +207,27 @@ pub const WaylandDisplayServer = struct {
         const shm_pool_size: usize = @as(usize, @intCast(args.height * stride * 2));
 
         const fd = try allocateShmFile(@intCast(shm_pool_size));
-        const pool_data = std.c.mmap(null, shm_pool_size, std.c.PROT.READ | std.c.PROT.WRITE, .{ .TYPE = .SHARED }, fd, 0);
+        const pool_data = std.c.mmap(
+            null,
+            shm_pool_size,
+            std.c.PROT.READ | std.c.PROT.WRITE,
+            .{ .TYPE = .SHARED },
+            fd,
+            0,
+        );
         const pool = c.wl_shm_create_pool(self.wl_shm, fd, @intCast(shm_pool_size)).?;
 
         const index = 0;
         const offset = args.height * stride * index;
 
-        const buffer = c.wl_shm_pool_create_buffer(pool, offset, args.width, args.height, stride, c.WL_SHM_FORMAT_XRGB8888).?;
+        const buffer = c.wl_shm_pool_create_buffer(
+            pool,
+            offset,
+            args.width,
+            args.height,
+            stride,
+            c.WL_SHM_FORMAT_XRGB8888,
+        ).?;
 
         _ = pool_data;
 

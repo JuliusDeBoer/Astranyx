@@ -38,7 +38,11 @@ pub fn main() !void {
     logger.info("Zig version: {}", .{builtin.zig_version});
 
     logger.info("Initializing Wayland...", .{});
-    const displayServer = try wds.WaylandDisplayServer.init(.{ .width = 640, .height = 480, .name = "Window maybe?" });
+    const displayServer = try wds.WaylandDisplayServer.init(.{
+        .width = 640,
+        .height = 480,
+        .name = "Window maybe?",
+    });
     state.displayServer = @constCast(&displayServer);
 
     logger.info("Initializing Vulkan...", .{});
