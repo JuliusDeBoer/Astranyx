@@ -41,6 +41,13 @@ const SwapChainDetails = struct {
     present_modes: []c.VkPresentModeKHR,
 };
 
+fn checkVulkanError(result: c.VkResult, msg: []const u8) !void {
+    if (result != c.VK_SUCCESS) {
+        logger.err("{s}: {s}", .{ msg, util.errorToString(result) });
+        return error.VulkanError;
+    }
+}
+
 pub const VulkanRenderer = struct {
     const Self = @This();
 
@@ -104,13 +111,10 @@ pub const VulkanRenderer = struct {
             create_info.enabledLayerCount = 0;
         }
 
-        switch (c.vkCreateInstance(&create_info, null, &self.instance)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not create Vulkan instance: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkCreateInstance(&create_info, null, &self.instance),
+            "Could not create Vulkan instance",
+        );
 
         var extension_count: u32 = 0;
         switch (c.vkEnumerateInstanceExtensionProperties(null, &extension_count, null)) {
@@ -124,37 +128,29 @@ pub const VulkanRenderer = struct {
         const extensions = try std.heap.c_allocator.alloc(c.VkExtensionProperties, extension_count);
         defer std.heap.c_allocator.free(extensions);
 
-        switch (c.vkEnumerateInstanceExtensionProperties(null, &extension_count, extensions.ptr)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not get instance extension properties: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkEnumerateInstanceExtensionProperties(null, &extension_count, extensions.ptr),
+            "Could not get instance extension properties",
+        );
 
         logger.info("Found {} extensions", .{extension_count});
     }
 
     fn validationLayersSupported() !bool {
         var layer_count: u32 = 0;
-        switch (c.vkEnumerateInstanceLayerProperties(&layer_count, null)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not get instance layer properties: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+
+        try checkVulkanError(
+            c.vkEnumerateInstanceLayerProperties(&layer_count, null),
+            "Could not get instance layer properties",
+        );
 
         const available_layers = try std.heap.c_allocator.alloc(c.VkLayerProperties, layer_count);
         defer std.heap.c_allocator.free(available_layers);
 
-        switch (c.vkEnumerateInstanceLayerProperties(&layer_count, available_layers.ptr)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not get instance layer properties: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkEnumerateInstanceLayerProperties(&layer_count, available_layers.ptr),
+            "Could not get instance layer properties",
+        );
 
         for (validation_layers) |layer_name| {
             var found = false;
@@ -203,13 +199,11 @@ pub const VulkanRenderer = struct {
 
     fn pickPhysicalDevice(self: *Self) !void {
         var device_count: u32 = 0;
-        switch (c.vkEnumeratePhysicalDevices(self.instance, &device_count, null)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Failed to get physical devices: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+
+        try checkVulkanError(
+            c.vkEnumeratePhysicalDevices(self.instance, &device_count, null),
+            "Failed to get physical devices",
+        );
 
         if (device_count == 0) {
             logger.err("Failed to find device with Vulkan support", .{});
@@ -219,13 +213,10 @@ pub const VulkanRenderer = struct {
         const devices = try std.heap.c_allocator.alloc(c.VkPhysicalDevice, device_count);
         defer std.heap.c_allocator.free(devices);
 
-        switch (c.vkEnumeratePhysicalDevices(self.instance, &device_count, devices.ptr)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Failed to get physical devices: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkEnumeratePhysicalDevices(self.instance, &device_count, devices.ptr),
+            "Failed to get physical devices",
+        );
 
         var selected_device: ?c.VkPhysicalDevice = null;
 
@@ -294,13 +285,10 @@ pub const VulkanRenderer = struct {
     fn checkExtensionSupport(device: *c.VkPhysicalDevice) bool {
         var extension_count: u32 = undefined;
 
-        switch (c.vkEnumerateDeviceExtensionProperties(device.*, null, &extension_count, null)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not get extension properties: {s}", .{util.errorToString(e)});
-                return false;
-            },
-        }
+        checkVulkanError(
+            c.vkEnumerateDeviceExtensionProperties(device.*, null, &extension_count, null),
+            "Could not get extension properties",
+        ) catch return false;
 
         const available_extensions = std.heap.c_allocator.alloc(c.VkExtensionProperties, extension_count) catch |e| {
             logger.err("Could not allocate memory for array at {}: {}", .{ @This(), e });
@@ -308,13 +296,10 @@ pub const VulkanRenderer = struct {
         };
         defer std.heap.c_allocator.free(available_extensions);
 
-        switch (c.vkEnumerateDeviceExtensionProperties(device.*, null, &extension_count, available_extensions.ptr)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not get extension properties: {s}", .{util.errorToString(e)});
-                return false;
-            },
-        }
+        checkVulkanError(
+            c.vkEnumerateDeviceExtensionProperties(device.*, null, &extension_count, available_extensions.ptr),
+            "Could not get extension properties",
+        ) catch return false;
 
         for (device_extensions) |required_ext| {
             var found = false;
@@ -338,22 +323,17 @@ pub const VulkanRenderer = struct {
             .present_modes = undefined,
         };
 
-        switch (c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, self.surface, &details.capabilities)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not get physical durface capabilities: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, self.surface, &details.capabilities),
+            "Could not get physical durface capabilities",
+        );
 
         var format_count: u32 = undefined;
-        switch (c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, self.surface, &format_count, null)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not get physical surface formats: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+
+        try checkVulkanError(
+            c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, self.surface, &format_count, null),
+            "Could not get physical surface formats",
+        );
         details.formats = try std.heap.c_allocator.alloc(c.VkSurfaceFormatKHR, format_count);
 
         // HACK(Julius): Not doing this causes a memory leak. Memory leaks are
@@ -361,32 +341,26 @@ pub const VulkanRenderer = struct {
 
         // defer std.heap.c_allocator.free(details.formats);
 
-        switch (c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, self.surface, &format_count, details.formats.ptr)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not get physical surface formats: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkGetPhysicalDeviceSurfaceFormatsKHR(device, self.surface, &format_count, details.formats.ptr),
+            "Could not get physical surface formats",
+        );
 
         var present_mode_count: u32 = undefined;
-        switch (c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, self.surface, &present_mode_count, null)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not get physical surface present modes: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+
+        try checkVulkanError(
+            c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, self.surface, &present_mode_count, null),
+            "Could not get physical surface present modes",
+        );
+
         details.present_modes = try std.heap.c_allocator.alloc(c.VkPresentModeKHR, present_mode_count);
         // HACK(Julius): Same thing here
         // defer std.heap.c_allocator.free(details.present_modes);
-        switch (c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, self.surface, &present_mode_count, details.present_modes.ptr)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not get physical surface present modes: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+
+        try checkVulkanError(
+            c.vkGetPhysicalDeviceSurfacePresentModesKHR(device, self.surface, &present_mode_count, details.present_modes.ptr),
+            "Could not get physical surface present modes",
+        );
 
         return details;
     }
@@ -437,13 +411,10 @@ pub const VulkanRenderer = struct {
             }
         }
 
-        switch (c.vkCreateDevice(self.physical_device, &device_info, null, &self.device)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not create device: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkCreateDevice(self.physical_device, &device_info, null, &self.device),
+            "Could not create device",
+        );
     }
 
     fn getQueue(self: *Self) void {
@@ -458,13 +429,10 @@ pub const VulkanRenderer = struct {
             .display = @ptrCast(self.wlds.wl_display),
         };
 
-        switch (c.vkCreateWaylandSurfaceKHR(self.instance, &create_info, null, &self.surface)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not create surface: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkCreateWaylandSurfaceKHR(self.instance, &create_info, null, &self.surface),
+            "Could not create surface",
+        );
     }
 
     fn chooseSwapChainSurfaceFormat(formats: []c.VkSurfaceFormatKHR) c.VkSurfaceFormatKHR {
@@ -527,21 +495,15 @@ pub const VulkanRenderer = struct {
             .clipped = c.VK_TRUE,
         };
 
-        switch (c.vkCreateSwapchainKHR(self.device, &create_info, null, &self.swap_chain)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not create swapchain: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkCreateSwapchainKHR(self.device, &create_info, null, &self.swap_chain),
+            "Could not create swapchain",
+        );
 
-        switch (c.vkGetSwapchainImagesKHR(self.device, self.swap_chain, &image_count, null)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not get swapchain image count: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkGetSwapchainImagesKHR(self.device, self.swap_chain, &image_count, null),
+            "Could not get swapchain image count",
+        );
 
         try self.swap_chain_images.resize(image_count);
 
@@ -582,13 +544,10 @@ pub const VulkanRenderer = struct {
                 },
             };
 
-            switch (c.vkCreateImageView(self.device, &create_info, null, &self.swap_chain_image_views.items[i])) {
-                c.VK_SUCCESS => {},
-                else => |e| {
-                    logger.err("Could not create image view: {s}", .{util.errorToString(e)});
-                    return error.VulkanError;
-                },
-            }
+            try checkVulkanError(
+                c.vkCreateImageView(self.device, &create_info, null, &self.swap_chain_image_views.items[i]),
+                "Could not create image view",
+            );
 
             i += 1;
         }
@@ -607,13 +566,10 @@ pub const VulkanRenderer = struct {
 
         var module: c.VkShaderModule = undefined;
 
-        switch (c.vkCreateShaderModule(self.device, &create_info, null, &module)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not create shader module: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkCreateShaderModule(self.device, &create_info, null, &module),
+            "Could not create shader module",
+        );
 
         const id = util.getUniqueId(self.shaders.keyIterator().items, self.shaders.keyIterator().len);
         try self.shaders.put(id, module);
@@ -691,13 +647,10 @@ pub const VulkanRenderer = struct {
             .pDependencies = &dependency,
         };
 
-        switch (c.vkCreateRenderPass(self.device, &render_pass_info, null, &self.render_pass)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not create render pass: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkCreateRenderPass(self.device, &render_pass_info, null, &self.render_pass),
+            "Could not create render pass",
+        );
     }
 
     fn loadState(self: *Self) !void {
@@ -785,13 +738,10 @@ pub const VulkanRenderer = struct {
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         };
 
-        switch (c.vkCreatePipelineLayout(self.device, &pipeline_layout_info, null, &self.pipeline_layout)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not create pipeline layout: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkCreatePipelineLayout(self.device, &pipeline_layout_info, null, &self.pipeline_layout),
+            "Could not create pipeline layout",
+        );
 
         const pipeline_info = c.VkGraphicsPipelineCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -809,13 +759,10 @@ pub const VulkanRenderer = struct {
             .subpass = 0,
         };
 
-        switch (c.vkCreateGraphicsPipelines(self.device, null, 1, &pipeline_info, null, &self.graphics_pipeline)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not create graphics pipeline: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkCreateGraphicsPipelines(self.device, null, 1, &pipeline_info, null, &self.graphics_pipeline),
+            "Could not create graphics pipeline",
+        );
     }
 
     fn createFramebuffers(self: *Self) !void {
@@ -835,13 +782,10 @@ pub const VulkanRenderer = struct {
                 .layers = 1,
             };
 
-            switch (c.vkCreateFramebuffer(self.device, &framebuffer_info, null, &self.swap_chain_framebuffers.items[i])) {
-                c.VK_SUCCESS => {},
-                else => |e| {
-                    logger.err("Could not create framebuffer: {s}", .{util.errorToString(e)});
-                    return error.VulkanError;
-                },
-            }
+            try checkVulkanError(
+                c.vkCreateFramebuffer(self.device, &framebuffer_info, null, &self.swap_chain_framebuffers.items[i]),
+                "Could not create framebuffer",
+            );
 
             i += 1;
         }
@@ -854,13 +798,10 @@ pub const VulkanRenderer = struct {
             .queueFamilyIndex = self.queue_family.graphics_family,
         };
 
-        switch (c.vkCreateCommandPool(self.device, &pool_info, null, &self.command_pool)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not create command pool: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkCreateCommandPool(self.device, &pool_info, null, &self.command_pool),
+            "Could not create command pool",
+        );
     }
 
     fn createCommandBuffer(self: *Self) !void {
@@ -871,13 +812,10 @@ pub const VulkanRenderer = struct {
             .commandBufferCount = 1,
         };
 
-        switch (c.vkAllocateCommandBuffers(self.device, &alloc_info, &self.command_buffer)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not allocate command buffer: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkAllocateCommandBuffers(self.device, &alloc_info, &self.command_buffer),
+            "Could not allocate command buffer",
+        );
     }
 
     fn createSyncObjects(self: *Self) !void {
@@ -889,29 +827,18 @@ pub const VulkanRenderer = struct {
             .flags = c.VK_FENCE_CREATE_SIGNALED_BIT,
         };
 
-        switch (c.vkCreateSemaphore(self.device, &semaphore_info, null, &self.image_available_semaphore)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not create semaphore: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
-
-        switch (c.vkCreateSemaphore(self.device, &semaphore_info, null, &self.render_finished_semaphore)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not create semaphore: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
-
-        switch (c.vkCreateFence(self.device, &fence_info, null, &self.in_flight_fence)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Could not create fence: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkCreateSemaphore(self.device, &semaphore_info, null, &self.image_available_semaphore),
+            "Could not create semaphore",
+        );
+        try checkVulkanError(
+            c.vkCreateSemaphore(self.device, &semaphore_info, null, &self.render_finished_semaphore),
+            "Could not create semaphore",
+        );
+        try checkVulkanError(
+            c.vkCreateFence(self.device, &fence_info, null, &self.in_flight_fence),
+            "Could not create fence",
+        );
     }
 
     pub fn init(wlds: *wl.WaylandDisplayServer) !Self {
@@ -1036,13 +963,10 @@ pub const VulkanRenderer = struct {
             .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         };
 
-        switch (c.vkBeginCommandBuffer(command_buffer, &begin_info)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Failed to begin recoding the command buffer: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkBeginCommandBuffer(command_buffer, &begin_info),
+            "Failed to begin recoding the command buffer",
+        );
 
         const clear_color = c.VkClearValue{ .color = .{ .float32 = .{ 0, 0, 0, 1 } } };
         const render_pass_info = c.VkRenderPassBeginInfo{
@@ -1077,13 +1001,10 @@ pub const VulkanRenderer = struct {
         c.vkCmdDraw(command_buffer, 3, 1, 0, 0);
         c.vkCmdEndRenderPass(command_buffer);
 
-        switch (c.vkEndCommandBuffer(command_buffer)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Failed to record command buffer: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkEndCommandBuffer(command_buffer),
+            "Failed to record command buffer",
+        );
     }
 
     pub fn draw(self: *Self) !void {
@@ -1111,13 +1032,10 @@ pub const VulkanRenderer = struct {
             .pSignalSemaphores = &signal_semaphores,
         };
 
-        switch (c.vkQueueSubmit(self.queue, 1, &submit_info, self.in_flight_fence)) {
-            c.VK_SUCCESS => {},
-            else => |e| {
-                logger.err("Failed to submit draw command buffer: {s}", .{util.errorToString(e)});
-                return error.VulkanError;
-            },
-        }
+        try checkVulkanError(
+            c.vkQueueSubmit(self.queue, 1, &submit_info, self.in_flight_fence),
+            "Failed to submit draw command buffer",
+        );
 
         const swap_chains = [_]c.VkSwapchainKHR{self.swap_chain};
 
