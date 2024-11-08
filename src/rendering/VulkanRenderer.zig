@@ -1002,6 +1002,11 @@ pub const VulkanRenderer = struct {
     }
 
     pub fn clean(self: *Self) void {
+        checkVulkanError(
+            c.vkDeviceWaitIdle(self.device),
+            "Could not wait for device to idle",
+        ) catch {};
+
         c.vkDestroySemaphore(self.device, self.image_available_semaphore, null);
         c.vkDestroySemaphore(self.device, self.render_finished_semaphore, null);
         c.vkDestroyFence(self.device, self.in_flight_fence, null);
