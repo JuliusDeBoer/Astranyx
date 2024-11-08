@@ -422,7 +422,7 @@ pub const VulkanRenderer = struct {
 
         var i: usize = 0;
         var it = unique_indices.keyIterator();
-        while (it.next()) |queue| {
+        while (it.next()) |queue| : (i += 1) {
             const queue_priority: f32 = 1;
             queue_create_infos[i] = .{
                 .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -430,7 +430,6 @@ pub const VulkanRenderer = struct {
                 .queueCount = 1,
                 .pQueuePriorities = &queue_priority,
             };
-            i += 1;
         }
 
         const device_features: c.VkPhysicalDeviceFeatures = .{};
@@ -845,9 +844,8 @@ pub const VulkanRenderer = struct {
     fn createFramebuffers(self: *Self) !void {
         try self.swap_chain_framebuffers.resize(self.swap_chain_image_views.items.len);
 
-        var i: usize = 0;
-        while (i < self.swap_chain_image_views.items.len) {
-            const attachments = [_]c.VkImageView{self.swap_chain_image_views.items[i]};
+        for (self.swap_chain_image_views.items, 0..) |view, i| {
+            const attachments = [_]c.VkImageView{view};
 
             const framebuffer_info = c.VkFramebufferCreateInfo{
                 .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
@@ -868,8 +866,6 @@ pub const VulkanRenderer = struct {
                 ),
                 "Could not create framebuffer",
             );
-
-            i += 1;
         }
     }
 
@@ -984,7 +980,6 @@ pub const VulkanRenderer = struct {
         try self.createImageViews();
 
         logger.info("Loading required shaders", .{});
-        // TODO(Julius): Figure out where to load the shaders.
         self.vert_shader = try self.loadThemShader("shaders/basic.vert.spv");
         self.frag_shader = try self.loadThemShader("shaders/basic.frag.spv");
 
