@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 
 const logger = l.Logger.init(@This());
 
-// The state of the entire program. Maybe move this to another file. Maybe not.
+// NOTE(Julius): The state of the entire program. Maybe move this to another file. Maybe not.
 const State = struct {
     const Self = @This();
 

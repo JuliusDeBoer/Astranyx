@@ -12,6 +12,7 @@ const wl = @import("../window/wayland.zig");
 const logger = @import("../logging.zig").Logger.init(@This());
 
 const MAX_FRAMES_IN_FLIGHT = 2;
+const VSYNC = true;
 
 const validation_layers = [_][*c]const u8{
     "VK_LAYER_KHRONOS_validation",
@@ -89,6 +90,7 @@ pub const VulkanRenderer = struct {
     in_flight_fences: [MAX_FRAMES_IN_FLIGHT]c.VkFence = undefined,
 
     current_frame: u32 = 0,
+    initialized: bool = false,
 
     fn createInstance(self: *Self, settings: InstanceSettings) !void {
         // TODO(Julius): Tweak these versions
@@ -496,6 +498,8 @@ pub const VulkanRenderer = struct {
     }
 
     fn chooseSwapChainPresentMode(present_modes: []c.VkPresentModeKHR) c.VkPresentModeKHR {
+        if (VSYNC) return c.VK_PRESENT_MODE_FIFO_KHR;
+
         for (present_modes) |present_mode| {
             if (present_mode == c.VK_PRESENT_MODE_MAILBOX_KHR) {
                 return present_mode;
@@ -936,7 +940,11 @@ pub const VulkanRenderer = struct {
     }
 
     pub fn init(wlds: *wl.WaylandDisplayServer) !Self {
-        var self = Self{ .wlds = wlds };
+        var self = Self{
+            .wlds = wlds,
+            .initialized = true,
+        };
+
         var enableValidationLayers = false;
 
         self.swap_chain_images = std.ArrayList(c.VkImage).init(std.heap.c_allocator);
@@ -1125,6 +1133,11 @@ pub const VulkanRenderer = struct {
     }
 
     pub fn draw(self: *Self) !void {
+        if (!self.initialized) {
+            logger.warn("Attempted to draw frame with uninitialized data", .{});
+            return;
+        }
+
         _ = c.vkWaitForFences(self.device, 1, &self.in_flight_fences[self.current_frame], c.VK_TRUE, std.math.maxInt(u32));
         _ = c.vkResetFences(self.device, 1, &self.in_flight_fences[self.current_frame]);
 
