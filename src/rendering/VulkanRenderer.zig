@@ -11,6 +11,8 @@ const wl = @import("../window/wayland.zig");
 
 const logger = @import("../logging.zig").Logger.init(@This());
 
+const MAX_FRAMES_IN_FLIGHT = 2;
+
 const validation_layers = [_][*c]const u8{
     "VK_LAYER_KHRONOS_validation",
 };
@@ -80,11 +82,13 @@ pub const VulkanRenderer = struct {
     render_pass: c.VkRenderPass = undefined,
     graphics_pipeline: c.VkPipeline = undefined,
     command_pool: c.VkCommandPool = undefined,
-    command_buffer: c.VkCommandBuffer = undefined,
+    command_buffers: [MAX_FRAMES_IN_FLIGHT]c.VkCommandBuffer = undefined,
 
-    image_available_semaphore: c.VkSemaphore = undefined,
-    render_finished_semaphore: c.VkSemaphore = undefined,
-    in_flight_fence: c.VkFence = undefined,
+    image_available_semaphores: [MAX_FRAMES_IN_FLIGHT]c.VkSemaphore = undefined,
+    render_finished_semaphores: [MAX_FRAMES_IN_FLIGHT]c.VkSemaphore = undefined,
+    in_flight_fences: [MAX_FRAMES_IN_FLIGHT]c.VkFence = undefined,
+
+    current_frame: u32 = 0,
 
     fn createInstance(self: *Self, settings: InstanceSettings) !void {
         // TODO(Julius): Tweak these versions
@@ -887,11 +891,11 @@ pub const VulkanRenderer = struct {
             .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
             .commandPool = self.command_pool,
             .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-            .commandBufferCount = 1,
+            .commandBufferCount = self.command_buffers.len,
         };
 
         try checkVulkanError(
-            c.vkAllocateCommandBuffers(self.device, &alloc_info, &self.command_buffer),
+            c.vkAllocateCommandBuffers(self.device, &alloc_info, &self.command_buffers),
             "Could not allocate command buffer",
         );
     }
@@ -905,28 +909,30 @@ pub const VulkanRenderer = struct {
             .flags = c.VK_FENCE_CREATE_SIGNALED_BIT,
         };
 
-        try checkVulkanError(
-            c.vkCreateSemaphore(
-                self.device,
-                &semaphore_info,
-                null,
-                &self.image_available_semaphore,
-            ),
-            "Could not create semaphore",
-        );
-        try checkVulkanError(
-            c.vkCreateSemaphore(
-                self.device,
-                &semaphore_info,
-                null,
-                &self.render_finished_semaphore,
-            ),
-            "Could not create semaphore",
-        );
-        try checkVulkanError(
-            c.vkCreateFence(self.device, &fence_info, null, &self.in_flight_fence),
-            "Could not create fence",
-        );
+        for (0..MAX_FRAMES_IN_FLIGHT) |i| {
+            try checkVulkanError(
+                c.vkCreateSemaphore(
+                    self.device,
+                    &semaphore_info,
+                    null,
+                    &self.image_available_semaphores[i],
+                ),
+                "Could not create semaphore",
+            );
+            try checkVulkanError(
+                c.vkCreateSemaphore(
+                    self.device,
+                    &semaphore_info,
+                    null,
+                    &self.render_finished_semaphores[i],
+                ),
+                "Could not create semaphore",
+            );
+            try checkVulkanError(
+                c.vkCreateFence(self.device, &fence_info, null, &self.in_flight_fences[i]),
+                "Could not create fence",
+            );
+        }
     }
 
     pub fn init(wlds: *wl.WaylandDisplayServer) !Self {
@@ -1007,9 +1013,11 @@ pub const VulkanRenderer = struct {
             "Could not wait for device to idle",
         ) catch {};
 
-        c.vkDestroySemaphore(self.device, self.image_available_semaphore, null);
-        c.vkDestroySemaphore(self.device, self.render_finished_semaphore, null);
-        c.vkDestroyFence(self.device, self.in_flight_fence, null);
+        for (0..MAX_FRAMES_IN_FLIGHT) |i| {
+            c.vkDestroySemaphore(self.device, self.image_available_semaphores[i], null);
+            c.vkDestroySemaphore(self.device, self.render_finished_semaphores[i], null);
+            c.vkDestroyFence(self.device, self.in_flight_fences[i], null);
+        }
 
         c.vkDestroyCommandPool(self.device, self.command_pool, null);
 
@@ -1117,24 +1125,24 @@ pub const VulkanRenderer = struct {
     }
 
     pub fn draw(self: *Self) !void {
-        _ = c.vkWaitForFences(self.device, 1, &self.in_flight_fence, c.VK_TRUE, std.math.maxInt(u32));
-        _ = c.vkResetFences(self.device, 1, &self.in_flight_fence);
+        _ = c.vkWaitForFences(self.device, 1, &self.in_flight_fences[self.current_frame], c.VK_TRUE, std.math.maxInt(u32));
+        _ = c.vkResetFences(self.device, 1, &self.in_flight_fences[self.current_frame]);
 
         var image_index: u32 = undefined;
         _ = c.vkAcquireNextImageKHR(
             self.device,
             self.swap_chain,
             std.math.maxInt(u32),
-            self.image_available_semaphore,
+            self.image_available_semaphores[self.current_frame],
             null,
             &image_index,
         );
 
-        _ = c.vkResetCommandBuffer(self.command_buffer, 0);
-        try self.recordCommandBuffer(self.command_buffer, image_index);
+        _ = c.vkResetCommandBuffer(self.command_buffers[self.current_frame], 0);
+        try self.recordCommandBuffer(self.command_buffers[self.current_frame], image_index);
 
-        const wait_semaphores = [_]c.VkSemaphore{self.image_available_semaphore};
-        const signal_semaphores = [_]c.VkSemaphore{self.render_finished_semaphore};
+        const wait_semaphores = [_]c.VkSemaphore{self.image_available_semaphores[self.current_frame]};
+        const signal_semaphores = [_]c.VkSemaphore{self.render_finished_semaphores[self.current_frame]};
         const wait_stages =
             [_]c.VkPipelineStageFlags{c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 
@@ -1144,13 +1152,13 @@ pub const VulkanRenderer = struct {
             .pWaitSemaphores = &wait_semaphores,
             .pWaitDstStageMask = &wait_stages,
             .commandBufferCount = 1,
-            .pCommandBuffers = &self.command_buffer,
+            .pCommandBuffers = &self.command_buffers[self.current_frame],
             .signalSemaphoreCount = 1,
             .pSignalSemaphores = &signal_semaphores,
         };
 
         try checkVulkanError(
-            c.vkQueueSubmit(self.queue, 1, &submit_info, self.in_flight_fence),
+            c.vkQueueSubmit(self.queue, 1, &submit_info, self.in_flight_fences[self.current_frame]),
             "Failed to submit draw command buffer",
         );
 
@@ -1166,5 +1174,7 @@ pub const VulkanRenderer = struct {
         };
 
         _ = c.vkQueuePresentKHR(self.present_queue, &present_info);
+
+        self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 };
