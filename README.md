@@ -1,5 +1,7 @@
 # Astranyx
 
+> *Its 2D so it doesn`t matter*
+
 A 2D video game project that will 100% never ever ever be even remotely closo
 to finished. *EVER*.
 
