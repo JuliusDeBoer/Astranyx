@@ -8,6 +8,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const debug = @import("debug.zig");
 const wl = @import("../window/wayland.zig");
+const math = @import("../math.zig");
 
 const logger = @import("../logging.zig").Logger.init(@This());
 
@@ -32,6 +33,48 @@ const device_extensions = [_][*c]const u8{
     c.VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 };
 
+const Vertex = struct {
+    const Self = @This();
+
+    pos: math.Vec2 = math.Vec2.empty(),
+    color: math.Vec3 = math.Vec3.empty(),
+
+    pub fn getBindingDescription() c.VkVertexInputBindingDescription {
+        return c.VkVertexInputBindingDescription{
+            .binding = 0,
+            .stride = @sizeOf(Self),
+            .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
+        };
+    }
+
+    pub fn getAttributeDescriptions() []const c.VkVertexInputAttributeDescription {
+        return &[_]c.VkVertexInputAttributeDescription{
+            c.VkVertexInputAttributeDescription{
+                .binding = 0,
+                .location = 0,
+                .format = c.VK_FORMAT_R32G32_SFLOAT,
+                .offset = @offsetOf(Self, "pos"),
+            },
+            c.VkVertexInputAttributeDescription{
+                .binding = 0,
+                .location = 1,
+                .format = c.VK_FORMAT_R32G32B32_SFLOAT,
+                .offset = @offsetOf(Self, "color"),
+            },
+        };
+    }
+};
+
+const vertices: []const Vertex = &[_]Vertex{
+    Vertex{ .pos = .{ .x = -0.5, .y = -0.5 }, .color = .{ .x = 1, .y = 0, .z = 0 } },
+    Vertex{ .pos = .{ .x = 0.5, .y = 0.5 }, .color = .{ .x = 0, .y = 1, .z = 0 } },
+    Vertex{ .pos = .{ .x = -0.5, .y = 0.5 }, .color = .{ .x = 0, .y = 0, .z = 1 } },
+
+    Vertex{ .pos = .{ .x = -0.5, .y = -0.5 }, .color = .{ .x = 0, .y = 0, .z = 1 } },
+    Vertex{ .pos = .{ .x = 0.5, .y = -0.5 }, .color = .{ .x = 0, .y = 1, .z = 0 } },
+    Vertex{ .pos = .{ .x = 0.5, .y = 0.5 }, .color = .{ .x = 1, .y = 0, .z = 0 } },
+};
+
 const InstanceSettings = struct {
     debug: bool,
     extensions: [*c]const [*c]const u8,
@@ -44,6 +87,8 @@ const SwapChainDetails = struct {
     present_modes: []c.VkPresentModeKHR,
 };
 
+/// Takes in a `VkResult `and prints an error message and returns an error if the result is not
+/// `VK_SUCCES`
 fn checkVulkanError(result: c.VkResult, msg: []const u8) !void {
     if (result != c.VK_SUCCESS) {
         logger.err("{s}: {s}", .{ msg, util.errorToString(result) });
@@ -88,6 +133,9 @@ pub const VulkanRenderer = struct {
     image_available_semaphores: [MAX_FRAMES_IN_FLIGHT]c.VkSemaphore = undefined,
     render_finished_semaphores: [MAX_FRAMES_IN_FLIGHT]c.VkSemaphore = undefined,
     in_flight_fences: [MAX_FRAMES_IN_FLIGHT]c.VkFence = undefined,
+
+    vertex_buffer: c.VkBuffer = undefined,
+    vertex_buffer_memory: c.VkDeviceMemory = undefined,
 
     current_frame: u32 = 0,
     initialized: bool = false,
@@ -725,7 +773,7 @@ pub const VulkanRenderer = struct {
         );
     }
 
-    fn loadState(self: *Self) !void {
+    fn createGraphicsPipeline(self: *Self) !void {
         const viewport = c.VkViewport{
             .x = 0,
             .y = 0,
@@ -762,10 +810,14 @@ pub const VulkanRenderer = struct {
             .pScissors = &scissor,
         };
 
+        const attribute_descriptions = Vertex.getAttributeDescriptions();
+
         const vertex_input_info = c.VkPipelineVertexInputStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-            .vertexBindingDescriptionCount = 0,
-            .vertexAttributeDescriptionCount = 0,
+            .vertexBindingDescriptionCount = 1,
+            .pVertexBindingDescriptions = &Vertex.getBindingDescription(),
+            .vertexAttributeDescriptionCount = @intCast(attribute_descriptions.len),
+            .pVertexAttributeDescriptions = attribute_descriptions.ptr,
         };
 
         const input_assembly = c.VkPipelineInputAssemblyStateCreateInfo{
@@ -939,6 +991,70 @@ pub const VulkanRenderer = struct {
         }
     }
 
+    fn findMemoryType(self: *Self, type_filter: u32, properties: c.VkMemoryPropertyFlags) !u32 {
+        var memory_properties: c.VkPhysicalDeviceMemoryProperties = undefined;
+        c.vkGetPhysicalDeviceMemoryProperties(self.physical_device, &memory_properties);
+
+        for (0..memory_properties.memoryTypeCount) |i| {
+            // NOTE(Juilus): Yes this isnt readable. Lets hope it does something good
+            if ((type_filter & (@as(u32, 1) << @intCast(i)) != 0) and
+                ((memory_properties.memoryTypes[i].propertyFlags & properties) != 0))
+            {
+                return @intCast(i);
+            }
+        }
+
+        logger.err("Could not find suitable memory type", .{});
+        return error.VulkanError;
+    }
+
+    fn createVertexBuffer(self: *Self) !void {
+        const buffer_info = c.VkBufferCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = @sizeOf(Vertex) * vertices.len,
+            .usage = c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+        };
+
+        try checkVulkanError(
+            c.vkCreateBuffer(self.device, &buffer_info, null, &self.vertex_buffer),
+            "Could not create vertex buffer",
+        );
+
+        var memory_requirements = c.VkMemoryRequirements{};
+        c.vkGetBufferMemoryRequirements(self.device, self.vertex_buffer, &memory_requirements);
+
+        const alloc_info = c.VkMemoryAllocateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = memory_requirements.size,
+            .memoryTypeIndex = try self.findMemoryType(
+                memory_requirements.memoryTypeBits,
+                c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            ),
+        };
+
+        try checkVulkanError(
+            c.vkAllocateMemory(self.device, &alloc_info, null, &self.vertex_buffer_memory),
+            "Could not allocate memory",
+        );
+        try checkVulkanError(
+            c.vkBindBufferMemory(self.device, self.vertex_buffer, self.vertex_buffer_memory, 0),
+            "Could not bind memory to buffer",
+        );
+
+        var data: ?*anyopaque = null;
+        try checkVulkanError(
+            c.vkMapMemory(self.device, self.vertex_buffer_memory, 0, buffer_info.size, 0, @ptrCast(&data)),
+            "Could not map memory",
+        );
+        // TODO(Julius): I have no clue what this is
+        @memcpy(
+            @as([*]u8, @ptrCast(data.?))[0..buffer_info.size],
+            @as([*]const u8, @ptrCast(vertices.ptr))[0..buffer_info.size],
+        );
+        c.vkUnmapMemory(self.device, self.vertex_buffer_memory);
+    }
+
     pub fn init(wlds: *wl.WaylandDisplayServer) !Self {
         var self = Self{
             .wlds = wlds,
@@ -1002,11 +1118,13 @@ pub const VulkanRenderer = struct {
         logger.info("Creating render pass", .{});
         try self.createRenderPass();
         logger.info("Building pipeline", .{});
-        try self.loadState();
+        try self.createGraphicsPipeline();
         logger.info("Creating framebuffers", .{});
         try self.createFramebuffers();
         logger.info("Creating command pool", .{});
         try self.createCommandPool();
+        logger.info("Creating vertex buffer", .{});
+        try self.createVertexBuffer();
         logger.info("Creating command buffer", .{});
         try self.createCommandBuffer();
 
@@ -1028,6 +1146,9 @@ pub const VulkanRenderer = struct {
         }
 
         c.vkDestroyCommandPool(self.device, self.command_pool, null);
+
+        c.vkDestroyBuffer(self.device, self.vertex_buffer, null);
+        c.vkFreeMemory(self.device, self.vertex_buffer_memory, null);
 
         for (self.swap_chain_framebuffers.items) |framebuffer| {
             c.vkDestroyFramebuffer(self.device, framebuffer, null);
@@ -1115,6 +1236,9 @@ pub const VulkanRenderer = struct {
             .extent = self.swap_chain_extent,
         };
 
+        var vertex_buffers = [_]c.VkBuffer{self.vertex_buffer};
+        const offsets = [_]u64{0};
+
         c.vkCmdBeginRenderPass(command_buffer, &render_pass_info, c.VK_SUBPASS_CONTENTS_INLINE);
         c.vkCmdBindPipeline(
             command_buffer,
@@ -1123,7 +1247,15 @@ pub const VulkanRenderer = struct {
         );
         c.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
         c.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-        c.vkCmdDraw(command_buffer, 3, 1, 0, 0);
+
+        c.vkCmdBindPipeline(
+            command_buffer,
+            c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            self.graphics_pipeline,
+        );
+        c.vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffers, &offsets);
+
+        c.vkCmdDraw(command_buffer, vertices.len, 1, 0, 0);
         c.vkCmdEndRenderPass(command_buffer);
 
         try checkVulkanError(
