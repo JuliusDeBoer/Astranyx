@@ -672,6 +672,7 @@ pub const VulkanRenderer = struct {
 
     /// Load in them shader
     fn loadThemShader(self: *Self, path: []const u8) !usize {
+        // TODO(Julius): Append ".spv" to end of path
         logger.info("Loading shader: {s}", .{path});
         const code = try util.openRelativeFile(path);
 
