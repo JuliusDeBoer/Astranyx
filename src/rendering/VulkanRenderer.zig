@@ -66,13 +66,13 @@ const Vertex = struct {
 };
 
 const vertices: []const Vertex = &[_]Vertex{
-    Vertex{ .pos = .{ .x = -0.5, .y = -0.5 }, .color = .{ .x = 1, .y = 0, .z = 0 } },
-    Vertex{ .pos = .{ .x = 0.5, .y = 0.5 }, .color = .{ .x = 0, .y = 1, .z = 0 } },
-    Vertex{ .pos = .{ .x = -0.5, .y = 0.5 }, .color = .{ .x = 0, .y = 0, .z = 1 } },
+    Vertex{ .pos = .{ .x = -0.5, .y = -0.5 }, .color = .{ .x = 0, .y = 0, .z = 0 } },
+    Vertex{ .pos = .{ .x = 0.5, .y = 0.5 }, .color = .{ .x = 1, .y = 1, .z = 0 } },
+    Vertex{ .pos = .{ .x = -0.5, .y = 0.5 }, .color = .{ .x = 0, .y = 1, .z = 0 } },
 
-    Vertex{ .pos = .{ .x = -0.5, .y = -0.5 }, .color = .{ .x = 0, .y = 0, .z = 1 } },
-    Vertex{ .pos = .{ .x = 0.5, .y = -0.5 }, .color = .{ .x = 0, .y = 1, .z = 0 } },
-    Vertex{ .pos = .{ .x = 0.5, .y = 0.5 }, .color = .{ .x = 1, .y = 0, .z = 0 } },
+    Vertex{ .pos = .{ .x = -0.5, .y = -0.5 }, .color = .{ .x = 0, .y = 0, .z = 0 } },
+    Vertex{ .pos = .{ .x = 0.5, .y = -0.5 }, .color = .{ .x = 1, .y = 0, .z = 0 } },
+    Vertex{ .pos = .{ .x = 0.5, .y = 0.5 }, .color = .{ .x = 1, .y = 1, .z = 0 } },
 };
 
 const InstanceSettings = struct {
